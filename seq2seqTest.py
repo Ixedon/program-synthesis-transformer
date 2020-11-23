@@ -345,7 +345,7 @@ def train_step(inp, targ, enc_hidden):
     return batch_loss
 
 
-EPOCHS = 3
+EPOCHS = 5
 
 for epoch in range(EPOCHS):
     start = time.time()
