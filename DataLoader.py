@@ -43,7 +43,7 @@ def load_programs_json(path):
     with open(path, "r") as file:
         lines = file.readlines()
         file.close()
-        for line in tqdm(lines):
+        for line in tqdm(lines[:100]):
             ob = json.loads(line)
             data_dict["text"].append(" ".join(ob['text']))
             data_dict["short_tree"].append(ob["short_tree"])
@@ -76,12 +76,6 @@ def token_to_type(token):
 
 
 def tokenize_program(program_tree, args, return_type):
-    '<l-bracket>'
-    '<r-bracket>'
-    '<start-args>'
-    '<end-args>'
-    '<start-argument>'
-    '<end-argument>'
     return " ".join([encode_return_type(return_type), encode_args(args), encode_command(program_tree)])
 
 
