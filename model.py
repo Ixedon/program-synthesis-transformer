@@ -109,6 +109,16 @@ class Seq2Seq:
     def get_initial_hidden_state(self):
         return tf.zeros((self.batch_size, self.units))
 
+    def load_last(self):
+        checkpoint_dir = './training_checkpoints'
+        checkpoint = tf.train.Checkpoint(
+            optimizer=self.optimizer,
+            encoder=self.encoder,
+            decoder=self.decoder
+        )
+        status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+        status.assert_existing_objects_matched()
+
     def train(self, epochs):
         checkpoint_dir = './training_checkpoints'
         checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
