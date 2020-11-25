@@ -1,9 +1,11 @@
 import json
 import os
+from deprecated import deprecated
 
 from tqdm import tqdm
 
 
+@deprecated
 def load_programs(path):
     with open(path, "r") as file:
         lines = file.readlines()
@@ -18,6 +20,7 @@ def load_programs(path):
     return programs
 
 
+@deprecated
 def load_programs_to_dict(path):
     data_dict = {
         "text": [],
@@ -26,7 +29,7 @@ def load_programs_to_dict(path):
     with open(path, "r") as file:
         lines = file.readlines()
         file.close()
-        for line in tqdm(lines[:1000]):
+        for line in tqdm(lines[:5000]):
             ob = json.loads(line)
             data_dict["text"].append(" ".join(ob['text']))
             data_dict["short_tree"].append(json.dumps(ob["short_tree"]))
@@ -43,7 +46,7 @@ def load_programs_json(path):
     with open(path, "r") as file:
         lines = file.readlines()
         file.close()
-        for line in tqdm(lines[:100]):
+        for line in tqdm(lines[:500]):
             ob = json.loads(line)
             data_dict["text"].append(" ".join(ob['text']))
             data_dict["short_tree"].append(ob["short_tree"])

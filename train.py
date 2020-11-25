@@ -11,6 +11,6 @@ tf.config.experimental.set_memory_growth(physical_devices[0], True)
 dataset = DataSet(8)
 model = Seq2Seq(128, 256, dataset)
 
-model.train(2)
+model.train(10)
 model.load_last()
 print(model.evaluate_sentence("given an array of numbers what is first half of the given array"))

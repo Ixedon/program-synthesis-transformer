@@ -65,13 +65,14 @@ class Seq2Seq:
         encoded_words = []
         for i in range(self.dataset.max_target_length):
             predictions, decoder_hidden, attention_weights = self.decode(decoder_input, decoder_hidden, encoder_output)
-
             attention_weights = tf.reshape(attention_weights, (-1,))
             # attention_plot[i] = attention_weights.numpy()
             predicted_id = tf.argmax(predictions[0]).numpy()
             encoded_words.append(predicted_id)
+            decoder_input = tf.expand_dims([predicted_id], 0)
             if self.end_index == predicted_id:
                 return encoded_words  # , attention_plot
+
         return encoded_words  # , attention_plot
 
     @tf.function
@@ -84,6 +85,7 @@ class Seq2Seq:
 
             decoder_hidden = encoder_hidden
             decoder_input = tf.expand_dims([self.dataset.get_target_index('<start>')] * self.batch_size, 1)
+
             for i in range(1, target.shape[1]):
                 predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
 
@@ -109,7 +111,7 @@ class Seq2Seq:
     def get_initial_hidden_state(self):
         return tf.zeros((self.batch_size, self.units))
 
-    def load_last(self):
+    def load_last(self, date: str):
         checkpoint_dir = './training_checkpoints'
         checkpoint = tf.train.Checkpoint(
             optimizer=self.optimizer,
@@ -120,7 +122,7 @@ class Seq2Seq:
         status.assert_existing_objects_matched()
 
     def train(self, epochs):
-        checkpoint_dir = './training_checkpoints'
+        checkpoint_dir = './training_checkpoints'  # TODO add start date to path
         checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
         checkpoint = tf.train.Checkpoint(
             optimizer=self.optimizer,
