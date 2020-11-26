@@ -1,57 +1,31 @@
 import json
 import os
-from deprecated import deprecated
 
 from tqdm import tqdm
 
 
-@deprecated
-def load_programs(path):
-    with open(path, "r") as file:
-        lines = file.readlines()
-        file.close()
-        programs = []
-        for line in tqdm(lines):
-            ob = json.loads(line)
-            text = " ".join(ob['text'])
-            program = json.dumps(ob["short_tree"])
-            programs.append((text, program))
-
-    return programs
-
-
-@deprecated
-def load_programs_to_dict(path):
-    data_dict = {
-        "text": [],
-        "short_tree": []
-    }
-    with open(path, "r") as file:
-        lines = file.readlines()
-        file.close()
-        for line in tqdm(lines[:5000]):
-            ob = json.loads(line)
-            data_dict["text"].append(" ".join(ob['text']))
-            data_dict["short_tree"].append(json.dumps(ob["short_tree"]))
-    return data_dict
-
-
-def load_programs_json(path):
+def load_programs_json(path, number=None):
     data_dict = {
         "text": [],
         "short_tree": [],
         "args": [],
-        "return_type": []
+        "return_type": [],
+        "tests": []
     }
     with open(path, "r") as file:
         lines = file.readlines()
         file.close()
-        for line in tqdm(lines[:500]):
+        if number:
+            n = number
+        else:
+            n = len(lines)
+        for line in tqdm(lines[:n]):
             ob = json.loads(line)
             data_dict["text"].append(" ".join(ob['text']))
             data_dict["short_tree"].append(ob["short_tree"])
             data_dict["args"].append(ob["args"])
             data_dict["return_type"].append(ob["return_type"])
+            data_dict["tests"].append(ob['tests'])
     return data_dict
 
 
@@ -116,12 +90,19 @@ def encode_command(command: list):
 
 def decode_program(text):
     tokens = text.split()
-    return_type = token_to_type(tokens[tokens.index("<start-type>") + 1: tokens.index("<end-type>")][0])
-    args_tokens = tokens[tokens.index("<start-args>") + 1: tokens.index("<end-args>")]
-    args = decode_args(args_tokens)
-    program_start = text.index('<end-args>') + 11
-    command = decode_command(text[program_start:])
-    return command, args, return_type
+    try:
+        return_type = token_to_type(tokens[tokens.index("<start-type>") + 1: tokens.index("<end-type>")][0])
+        args_tokens = tokens[tokens.index("<start-args>") + 1: tokens.index("<end-args>")]
+        args = decode_args(args_tokens)
+        program_start = text.index('<end-args>') + 11
+        command = decode_command(text[program_start:])
+        return command, args, return_type
+    except ValueError as e:
+        raise NotCompiledError(e.args[0])
+    except KeyError as e:
+        raise NotCompiledError(e.args[0])
+    except IndexError as e:
+        raise NotCompiledError(e.args[0])
 
 
 def decode_args(tokens):
@@ -173,6 +154,13 @@ def decode_command(program):
     return command
 
 
+class NotCompiledError(Exception):
+
+    def __init__(self, message):
+        self.message = message
+        super(NotCompiledError, self).__init__(f"Compilation Error: {message}")
+
+
 if __name__ == '__main__':
     file_path = os.path.join("cleared_data", "metaset3.train.jsonl")
     programs = load_programs_json(file_path)
@@ -197,65 +185,3 @@ if __name__ == '__main__':
             print(return_type)
             print(decoded_type)
             raise ValueError("Decoding type")
-
-    # with open(file_path, "r") as file:
-    #     lines = file.readlines()
-    #     file.close()
-    # units = load_lisp_units()
-    # errors = 0
-    # v_e = 0
-    # errors_numbers = []
-    # for j, line in enumerate(lines):
-    #     ob = json.loads(line)
-    #     # try:
-    #     args = [(key, str_to_type(ob['args'][key])) for key in ob['args'].keys()]
-    #     return_type = str_to_type(ob['return_type'])
-    #     statement = compile_func(units, "test", ob['short_tree'], args, return_type)
-    #     w_t = 0
-    #     for i in range(len(ob['tests'])):
-    #
-    #         test = ob['tests'][i]['input']
-    #         o_test = ob['tests'][i]['output']
-    #
-    #         test_args = [test[a] for a in test.keys()]
-    #         o = statement(*test_args)
-    #         if isinstance(o, range):
-    #             o = list(o)
-    #         if o != o_test:
-    #             w_t += 1
-    #     if w_t > 0:
-    #         errors_numbers.append(j)
-    #         print(f"error {j}")
-    #         print("Text", " ".join(ob['text']))
-    #         print("Args input:", ob['args'])
-    #         print("Ret type:", ob['return_type'])
-    #         print("Args:", *test_args)
-    #         print("Output", o)
-    #         print("Test output", o_test)
-    #         print("Code:", ob['short_tree'])
-    #         errors += 1
-    #         print()
-    #     if ob['tags']:
-    #         print(ob['tags'])
-    # # except ValueError as e:
-    # #     print(f"Value error {j}")
-    # #     print("Text", " ".join(ob['text']))
-    # #     print("Args input:", ob['args'])
-    # #     print("Ret type:", ob['return_type'])
-    # #     print("Args:", *test_args)
-    # #     print("Output", o)
-    # #     print("Test output", o_test)
-    # #     print("Tests", ob['tests'])
-    # #     print("Code:", ob['short_tree'])
-    # #     print()
-    # #     errors_numbers.append(i)
-    # #     # traceback.print_exc()
-    # #     v_e += 1
-    # #     # exit(0)
-    #
-    # print("Errors:", errors)
-    # print("Ve:", v_e)
-    # # # statement.arg_values = [4,5]
-    # # print("Run",statement([4, 5, 4, 4]))
-    #
-    # print(errors_numbers)

@@ -32,7 +32,11 @@ class DataSetClearer:
                 program = json.loads(line)
                 args = [(key, str_to_type(program['args'][key])) for key in program['args'].keys()]
                 return_type = str_to_type(program['return_type'])
+                print("Program", type(program), program)
+                print("Args:", type(args), args)
+                print("Type:", type(return_type), return_type)
                 statement = compile_func(self.lips_units, "test", program['short_tree'], args, return_type)
+                exit(0)
                 tests = program['tests']
                 ok_tests = []
 
@@ -97,6 +101,7 @@ class DataSetClearer:
         print(f"Errors quantities: {self.errors_quantity}")
         print(f"Errors numbers: {self.errors_numbers}")
         print(f"Not passed: {self.not_passed}")
+
 
     def __read_programs(self):
         with open(self.dataset_path, "r") as file:
