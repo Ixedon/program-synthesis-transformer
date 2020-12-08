@@ -282,7 +282,7 @@ def levenstein(truth, hyp):
 #     return loss
 
 
-# checkpoint_dir = './training_checkpoints'
+# checkpoint_dir = './training_checkpoints-30-11-2020'
 # checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 # checkpoint = tf.train.Checkpoint(optimizer=optimizer,
 #                                  encoder=encoder,

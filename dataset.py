@@ -65,12 +65,22 @@ class DataSet:
         programs = load_programs_json(os.path.join("cleared_data", "metaset3.train.jsonl"))
         texts = [self.preprocess_sentence(w) for w in programs['text']]
         programs_tokenized = []
+        ids = []
+        return_types = []
+        args = []
         for i in range(len(programs["short_tree"])):
-            programs_tokenized.append('<start> ' + tokenize_program(programs["short_tree"][i], programs["args"][i],
-                                                                    programs["return_type"][i]) + ' <end>')
+            program, program_args = tokenize_program(programs["short_tree"][i], programs["args"][i])
+            programs_tokenized.append('<start> ' + program + ' <end>')
+            return_types.append(programs["return_type"][i])
+            args.append(program_args)
+            ids.append(i)
         texts, programs = self.__create_tokenizers(texts, programs_tokenized)
-        tensor_len = len(programs)
-        dataset = Dataset.from_tensor_slices((texts[:self.total_train_count], programs[:self.total_train_count])).shuffle(tensor_len)
+        tensor_len = len(programs[:self.total_train_count])
+        dataset = Dataset.from_tensor_slices((
+            texts[:self.total_train_count], programs[:self.total_train_count],
+            return_types[:self.total_train_count], args[:self.total_train_count],
+            ids[:self.total_train_count]
+        )).shuffle(tensor_len)
         self.tf_train_dataset = dataset.batch(self.batch_size, drop_remainder=True)
 
     def __create_val_dataset(self):
@@ -79,14 +89,21 @@ class DataSet:
         programs_tokenized = []
         self.val_tests = programs['tests']
         ids = []
+        return_types = []
+        args = []
         for i in range(len(programs["short_tree"])):
-            programs_tokenized.append('<start> ' + tokenize_program(programs["short_tree"][i], programs["args"][i],
-                                                                    programs["return_type"][i]) + ' <end>')
+            program, program_args = tokenize_program(programs["short_tree"][i], programs["args"][i])
+            programs_tokenized.append('<start> ' + program + ' <end>')
+            return_types.append(programs["return_type"][i])
+            args.append(program_args)
             ids.append(i)
         texts, programs = self.__tokenize_programs(texts, programs_tokenized)
-        tensor_len = len(programs)
+        tensor_len = len(programs[:self.total_val_count])
+        dataset = Dataset.from_tensor_slices((
+            texts[:self.total_val_count], programs[:self.total_val_count], return_types[:self.total_val_count],
+            args[:self.total_val_count], ids[:self.total_val_count]
+        )).shuffle(tensor_len)
         self.total_val_count = tensor_len
-        dataset = Dataset.from_tensor_slices((texts, programs, ids)).shuffle(tensor_len)
         self.tf_val_dataset = dataset.batch(self.batch_size, drop_remainder=True)
 
     def get_target_index(self, word: str):
@@ -145,15 +162,16 @@ class DataSet:
         for i in encoded_program.numpy():
             if i != 0:
                 program.append(self.target_tokenizer.index_word[i])
-
+        end_index = program.index("<end>")
         if "<start>" in program:
             program.remove("<start>")
-        if "<end>" in program:
-            program.remove("<end>")
-        return program
+        return program[:end_index]
 
-    def decode_program(self, encoded_program):
-        return decode_program(" ".join(self.get_program_tokens(encoded_program)))
+    def decode_program(self, encoded_program, program_args):
+        print(encoded_program.shape)
+        tokens = self.get_program_tokens(encoded_program)
+        print(tokens)
+        return decode_program(" ".join(self.get_program_tokens(encoded_program)), program_args)
 
     def compile_func(self, program, args, return_type):
         program = program.replace('"', '\\"')

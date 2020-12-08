@@ -5,13 +5,11 @@ import time
 import tensorflow as tf
 from tensorflow import GradientTape
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Embedding, GRU, Dense
+from tensorflow.keras.layers import Dense
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
 
-import numpy as np
-
-from DataLoader import NotCompiledError
+from DataLoader import NotCompiledError, token_to_type
 from dataset import DataSet
 from summary_writer import TrainSummaryWriter
 
@@ -26,9 +24,11 @@ class Seq2Seq:
         # Dataset
         self.__dataset = dataset
 
+        print(f"Input Vocab size: {dataset.input_vocab_size}")
         # Encoder
         self.__encoder = Encoder(dataset.input_vocab_size, embeddig_dim, self.__units)
 
+        print(f"Output Vocab size: {self.__dataset.target_vocab_size}")
         # Decoder
         self.__decoder = Decoder(self.__dataset.target_vocab_size, embeddig_dim, self.__units)
 
@@ -117,7 +117,7 @@ class Seq2Seq:
         return tf.zeros((self.__batch_size, self.__units))
 
     def load_last(self, date: str):
-        checkpoint_dir = './training_checkpoints'
+        checkpoint_dir = 'training_checkpoints-' + date
         checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
             encoder=self.__encoder,
@@ -130,7 +130,7 @@ class Seq2Seq:
         print("Starting training")
         print(f"Train examples:{self.__dataset.get_train_count()}")
         print(f"Val examples:{self.__dataset.get_val_count()}")
-        checkpoint_dir = './training_checkpoints'  # TODO add start date to path
+        checkpoint_dir = 'training_checkpoints'  # TODO add start date to path
         checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
         checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
@@ -138,7 +138,7 @@ class Seq2Seq:
             decoder=self.__decoder
         )
 
-        min_loss_checkpoint_dir = "./min_loss_checkpoint"
+        min_loss_checkpoint_dir = "min_loss_checkpoint"
         min_loss_checkpoint_prefix = os.path.join(min_loss_checkpoint_dir, "ckpt")
         min_loss_checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
@@ -147,15 +147,24 @@ class Seq2Seq:
         )
         min_loss = 100000
 
+        min_val_loss_checkpoint_dir = "min_val_loss_checkpoint"
+        min_val_loss_checkpoint_prefix = os.path.join(min_val_loss_checkpoint_dir, "ckpt")
+        min_val_loss_checkpoint = tf.train.Checkpoint(
+            optimizer=self.__optimizer,
+            encoder=self.__encoder,
+            decoder=self.__decoder
+        )
+        min_val_los = 10000
+        val_steps_per_epoch = self.__dataset.get_val_count() // self.__batch_size
         steps_per_epoch = self.__dataset.get_train_count() // self.__batch_size
         for epoch in range(epochs):
             start_time = time.time()
             encoder_hidden = self.get_initial_hidden_state()
             epoch_loss = 0
-            for (batch, (input, target)) in enumerate(self.__dataset.take_train(steps_per_epoch)):
+            for (batch, (input, target, return_types, args, ids)) in enumerate(self.__dataset.take_train(steps_per_epoch)):
                 batch_loss = self.train_step(input, target, encoder_hidden)
                 epoch_loss += batch_loss
-
+                # TODO train tests
                 if batch % 100 == 0:
                     print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
                                                                  batch,
@@ -164,11 +173,14 @@ class Seq2Seq:
                 checkpoint.save(file_prefix=checkpoint_prefix)
 
             val_loss = self.validate(epoch)
-            self.__summary_writer.write_train_loss(epoch_loss / steps_per_epoch, val_loss, epoch)
+            if val_loss / val_steps_per_epoch < min_val_los:
+                min_val_los = val_loss
+                min_val_loss_checkpoint.save(file_prefix=min_val_loss_checkpoint_prefix)
+            self.__summary_writer.write_train_loss(epoch_loss / steps_per_epoch, val_loss / val_steps_per_epoch, epoch)
             if epoch_loss / steps_per_epoch < min_loss:
                 min_loss_checkpoint.save(file_prefix=min_loss_checkpoint_prefix)
                 min_loss = epoch_loss / steps_per_epoch
-            print('Epoch {} Loss {:.4f}'.format(epoch + 1, epoch_loss / steps_per_epoch, val_loss))
+            print('Epoch {} Loss {:.4f} Val loss: {:.4f}'.format(epoch + 1, epoch_loss / steps_per_epoch, val_loss))
             print('Time taken for 1 epoch {} sec\n'.format(time.time() - start_time))
 
     def validate(self, epoch: int) -> float:
@@ -179,16 +191,17 @@ class Seq2Seq:
         passed_tests = 0
         total_tests = 0
         first = True
-        for (batch, (input, target, tests)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
+        for (batch, (input, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
             batch_loss, predicted = self.val_step(input, target, encoder_hidden)
             val_loss += batch_loss
-            validation_tests = self.__dataset.take_val_tests(tests)
+            validation_tests = self.__dataset.take_val_tests(ids)
             for i, program in enumerate(predicted):
                 if first:
                     description = self.__dataset.decode_input(input[i])
                 else:
                     description = None
-                compiled, passed = self.evaluate_program(epoch, program, validation_tests[i], description)
+                # TODO check program
+                compiled, passed = self.evaluate_program(epoch, program, args[i], return_types[i], validation_tests[i], description)
                 passed_tests += passed
                 compiled_programs += compiled
                 total_tests += len(validation_tests[i])
@@ -223,9 +236,14 @@ class Seq2Seq:
 
             decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)
+            # print("Predicted_id", predicted_id)
+            # print("Predicted_id shape", predicted_id.shape)
             predicted_id = tf.reshape(predicted_id, (8, 1))
-            predicted = tf.concat([predicted, predicted_id], axis=0)
+            predicted = tf.concat([predicted, predicted_id], axis=1)
 
+
+        # print("Predicted shape", predicted.shape)
+        # print("Target shape", target.shape)
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
         # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
         # tf.print("Loss", loss, output_stream=sys.stderr)
@@ -233,14 +251,16 @@ class Seq2Seq:
         batch_loss = (loss / int(target.shape[1]))
         return batch_loss, predicted
 
-    def evaluate_program(self, epoch: int, encoded_program, tests, description: str = None) -> (int, int, int):
-        try:
+    def evaluate_program(self, epoch: int, encoded_program, program_args, program_return_type, tests, description: str = None) -> (int, int, int):
+        written = False
+        try:  # TODO get sub list to <end>
             passed_tests = 0
-            program, args, return_type = self.__dataset.decode_program(encoded_program)
+            program, args = self.__dataset.decode_program(encoded_program, program_args)
             if description:
-                self.__summary_writer.write_generated_program(program, args, return_type, description, epoch)
-
+                self.__summary_writer.write_generated_program(program, args, program_return_type, description, epoch)
+                written = True
             sys.setrecursionlimit(15000)
+            return_type = token_to_type(program_return_type)
             statement = self.__dataset.compile_func(program, args, return_type)
             for i in range(len(tests)):
                 test_input = tests[i]['input']
@@ -256,11 +276,11 @@ class Seq2Seq:
                     print(e.args[0], file=sys.stderr)
                     continue
 
-            print(f"PassedTests: {passed_tests} Total:{len(tests)}")
+            # print(f"PassedTests: {passed_tests} Total:{len(tests)}")
             return 1, passed_tests
         except NotCompiledError as e:
-            print(e.message, file=sys.stderr)
-            if description:
+            print(f"CompilationError:{e.message}", file=sys.stderr)
+            if description and not written:
                 text = " ".join(self.__dataset.get_program_tokens(encoded_program))
                 self.__summary_writer.write_generated_program(text, "", "", description, epoch)
             return 0, 0

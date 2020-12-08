@@ -9,7 +9,7 @@ assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
 tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 
-dataset = DataSet(8, 20_000, 1000)
+dataset = DataSet(8, 5_000, 100)
 model = Seq2Seq(128, 256, dataset)
 summary_writer = TrainSummaryWriter("logs")
 
