@@ -52,25 +52,17 @@ def token_to_type(token):
     return REV_TYPES[token]
 
 
-def tokenize_program(program_tree, args, return_type):
-    return " ".join([encode_return_type(return_type), encode_args(args), encode_command(program_tree)])
-
-
-def encode_return_type(return_type):
-    return_types = ["<start-type>"]
-    return_types.append(type_to_token(return_type))
-    return_types.append("<end-type>")
-    return " ".join(return_types)
+def tokenize_program(program_tree, program_args):
+    return encode_command(program_tree), encode_args(program_args)
 
 
 def encode_args(args):
-    args_tokens = ["<start-args>"]
+    args_tokens = []
     for key in args.keys():
         args_tokens.append("<start-arg>")
         args_tokens.append(key)
         args_tokens.append(type_to_token(args[key]))
         args_tokens.append("<end-arg>")
-    args_tokens.append("<end-args>")
     return " ".join(args_tokens)
 
 
@@ -88,15 +80,12 @@ def encode_command(command: list):
     return " ".join(words)
 
 
-def decode_program(text):
-    tokens = text.split()
+def decode_program(program_text, args_tokens):
+    # TODO think about strings
     try:
-        return_type = token_to_type(tokens[tokens.index("<start-type>") + 1: tokens.index("<end-type>")][0])
-        args_tokens = tokens[tokens.index("<start-args>") + 1: tokens.index("<end-args>")]
-        args = decode_args(args_tokens)
-        program_start = text.index('<end-args>') + 11
-        command = decode_command(text[program_start:])
-        return command, args, return_type
+        args = decode_args(args_tokens.numpy().decode('utf-8').split())
+        command = decode_command(program_text)
+        return command, args
     except ValueError as e:
         raise NotCompiledError(e.args[0])
     except KeyError as e:
@@ -168,8 +157,8 @@ if __name__ == '__main__':
         tree = programs["short_tree"][i]
         args = programs["args"][i]
         return_type = programs["return_type"][i]
-        tokenized = tokenize_program(tree, args, return_type)
-        decoded_tree, decoded_args, decoded_type = decode_program(tokenized)
+        tokenized, tokenized_args = tokenize_program(tree, args)
+        decoded_tree, decoded_args = decode_program(tokenized, tokenized_args)
         if str(tree) != decoded_tree:
             print(tokenized)
             print(tree)
@@ -180,8 +169,3 @@ if __name__ == '__main__':
             print(args)
             print(decoded_args)
             raise ValueError("Decoding args error")
-        if return_type != decoded_type:
-            print(tokenized)
-            print(return_type)
-            print(decoded_type)
-            raise ValueError("Decoding type")

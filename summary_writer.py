@@ -1,10 +1,16 @@
-import os, shutil
+import datetime
+import os
+import shutil
+
 from tensorflow import summary
 
 
 class TrainSummaryWriter:
 
     def __init__(self, logs_dir):
+        current_date = datetime.date.today()
+        current_date = current_date.strftime("%d-%m-%Y")
+        logs_dir += "-" + current_date
         if not os.path.exists(logs_dir):
             os.makedirs(logs_dir)
         if len(os.listdir(logs_dir)) > 0:
