@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import datetime
 
 import tensorflow as tf
 from tensorflow import GradientTape
@@ -127,10 +128,12 @@ class Seq2Seq:
         status.assert_existing_objects_matched()
 
     def train(self, epochs):
+        current_date = datetime.date.today()
+        current_date = current_date.strftime("%d-%m-%Y")
         print("Starting training")
         print(f"Train examples:{self.__dataset.get_train_count()}")
         print(f"Val examples:{self.__dataset.get_val_count()}")
-        checkpoint_dir = 'training_checkpoints'  # TODO add start date to path
+        checkpoint_dir = 'training_checkpoints-' + current_date
         checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
         checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
@@ -138,7 +141,7 @@ class Seq2Seq:
             decoder=self.__decoder
         )
 
-        min_loss_checkpoint_dir = "min_loss_checkpoint"
+        min_loss_checkpoint_dir = "min_loss_checkpoint-" + current_date
         min_loss_checkpoint_prefix = os.path.join(min_loss_checkpoint_dir, "ckpt")
         min_loss_checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
@@ -147,7 +150,7 @@ class Seq2Seq:
         )
         min_loss = 100000
 
-        min_val_loss_checkpoint_dir = "min_val_loss_checkpoint"
+        min_val_loss_checkpoint_dir = "min_val_loss_checkpoint-" + current_date
         min_val_loss_checkpoint_prefix = os.path.join(min_val_loss_checkpoint_dir, "ckpt")
         min_val_loss_checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
