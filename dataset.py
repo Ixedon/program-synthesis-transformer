@@ -1,13 +1,14 @@
 import json
 import os
 import re
+from json.decoder import JSONDecodeError
 
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.data import Dataset
 
 from interpreter.code_lisp import load_lisp_units, str_to_type, compile_func
-from DataLoader import load_programs_json, tokenize_program, decode_program
+from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError
 
 
 class DataSet:
@@ -162,21 +163,25 @@ class DataSet:
         for i in encoded_program.numpy():
             if i != 0:
                 program.append(self.target_tokenizer.index_word[i])
-        end_index = program.index("<end>")
         if "<start>" in program:
             program.remove("<start>")
-        return program[:end_index]
+        if "<end>" in program:
+            end_index = program.index("<end>")
+            return program[:end_index]
+        return program
 
     def decode_program(self, encoded_program, program_args):
-        print(encoded_program.shape)
-        tokens = self.get_program_tokens(encoded_program)
-        print(tokens)
         return decode_program(" ".join(self.get_program_tokens(encoded_program)), program_args)
 
     def compile_func(self, program, args, return_type):
         program = program.replace('"', '\\"')
         program = program.replace("'", '"')
-        program = json.loads(program)
-        args = [(key, str_to_type(args[key])) for key in args.keys()]
-        return_type = str_to_type(return_type)
-        return compile_func(self.lips_units, "program", program, args, return_type)
+        try:
+            program = json.loads(program)
+            args = [(key, str_to_type(args[key])) for key in args.keys()]
+            return_type = str_to_type(return_type)
+            return compile_func(self.lips_units, "program", program, args, return_type)
+        except JSONDecodeError as e:
+            raise NotCompiledError(e.args[0])
+        except ValueError as e:
+            raise NotCompiledError(e.args[0])

@@ -260,7 +260,7 @@ class Seq2Seq:
                 self.__summary_writer.write_generated_program(program, args, program_return_type, description, epoch)
                 written = True
             sys.setrecursionlimit(15000)
-            return_type = token_to_type(program_return_type)
+            return_type = program_return_type.numpy().decode("utf-8")
             statement = self.__dataset.compile_func(program, args, return_type)
             for i in range(len(tests)):
                 test_input = tests[i]['input']
