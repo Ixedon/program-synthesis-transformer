@@ -1,7 +1,7 @@
+import datetime
 import os
 import sys
 import time
-import datetime
 
 import tensorflow as tf
 from tensorflow import GradientTape
@@ -10,7 +10,7 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
 
-from DataLoader import NotCompiledError, token_to_type
+from DataLoader import NotCompiledError
 from dataset import DataSet
 from summary_writer import TrainSummaryWriter
 
@@ -42,8 +42,10 @@ class Seq2Seq:
     def get_trainable_variables(self):
         return self.__encoder.trainable_variables + self.__decoder.trainable_variables
 
+    # TODO add not compiled loss
     def loss_function(self, target, prediction):
         mask = tf.math.logical_not(tf.math.equal(target, 0))
+        # tf.print(mask)
         loss = self.__loss(target, prediction)
         mask = tf.cast(mask, dtype=loss.dtype)
         loss *= mask
@@ -56,7 +58,7 @@ class Seq2Seq:
         return self.__decoder(x, hidden, encoder_output)
 
     def evaluate_sentence(self, sentence: str):
-        input = tf.convert_to_tensor([self.__dataset.preprocess_sequecnse(sentence)])
+        input = tf.convert_to_tensor([self.__dataset.preprocess_sequence(sentence)])
         hidden = [tf.zeros((1, self.__units))]
         encoded_words = self.call(input, hidden)
         words = [self.__dataset.get_target_word(i) for i in encoded_words]
@@ -81,43 +83,10 @@ class Seq2Seq:
 
         return encoded_words  # , attention_plot
 
-    @tf.function
-    def train_step(self, input, target, encoder_hidden):
-        loss = 0
-        # TODO for levenstein
-        # predicted = tf.zeros((self.batch_size, 1), dtype=tf.int64)
-        with GradientTape() as tape:
-            encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
-
-            decoder_hidden = encoder_hidden
-            decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
-
-            for i in range(1, target.shape[1]):
-                predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
-
-                loss += self.loss_function(target[:, i], predictions)
-
-                decoder_input = tf.expand_dims(target[:, i], 1)
-            # TODO for levenstein
-            # predicted_id = tf.argmax(predictions, axis=1)
-            # predicted_id = tf.reshape(predicted_id, (8, 1))
-            # predicted = tf.concat([predicted, predicted_id], axis=0)
-
-        # TODO for levenstein
-        # predicted = tf.cast(tf.reshape(predicted, targ.shape), tf.int32)
-        # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
-        # tf.print("Loss", loss, output_stream=sys.stderr)
-        # loss += levenstein_loss
-        batch_loss = (loss / int(target.shape[1]))
-
-        gradients = tape.gradient(loss, self.get_trainable_variables())
-        self.__optimizer.apply_gradients(zip(gradients, self.get_trainable_variables()))
-        return batch_loss
-
     def get_initial_hidden_state(self):
         return tf.zeros((self.__batch_size, self.__units))
 
-    def load_last(self, date: str):
+    def load_last(self, date: str) -> None:
         checkpoint_dir = 'training_checkpoints-' + date
         checkpoint = tf.train.Checkpoint(
             optimizer=self.__optimizer,
@@ -127,7 +96,43 @@ class Seq2Seq:
         status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
         status.assert_existing_objects_matched()
 
-    def train(self, epochs):
+    @tf.function
+    def train_step(self, input, target, encoder_hidden):
+        loss = 0
+        predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
+        with GradientTape() as tape:
+            encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
+
+            decoder_hidden = encoder_hidden
+            decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
+
+            for i in range(1, target.shape[1]):
+                predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
+
+                # TODO calculate loss for all targets and add not compilation error
+                loss += self.loss_function(target[:, i], predictions)
+
+                decoder_input = tf.expand_dims(target[:, i], 1)
+
+                predicted_id = tf.argmax(predictions, axis=1)
+                predicted_id = tf.reshape(predicted_id, (8, 1))
+                predicted = tf.concat([predicted, predicted_id], axis=1)
+
+        # TODO for levensgtein
+        # predicted = tf.cast(tf.reshape(predicted, targ.shape), tf.int32)
+        # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
+        # tf.print("Loss", loss, output_stream=sys.stderr)
+        # loss += levenstein_loss
+        predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
+        batch_loss = (loss / int(target.shape[1]))
+
+        # TODO evaluate predicted here and double loss if not compiled
+
+        gradients = tape.gradient(loss, self.get_trainable_variables())
+        self.__optimizer.apply_gradients(zip(gradients, self.get_trainable_variables()))
+        return batch_loss, predicted
+
+    def train(self, epochs: int, compile_train: bool) -> None:
         current_date = datetime.date.today()
         current_date = current_date.strftime("%d-%m-%Y")
         print("Starting training")
@@ -164,14 +169,47 @@ class Seq2Seq:
             start_time = time.time()
             encoder_hidden = self.get_initial_hidden_state()
             epoch_loss = 0
-            for (batch, (input, target, return_types, args, ids)) in enumerate(self.__dataset.take_train(steps_per_epoch)):
-                batch_loss = self.train_step(input, target, encoder_hidden)
+
+            compiled_programs = 0
+            passed_tests = 0
+            total_tests = 0
+            first = True
+            for (batch, (input, target, return_types, args, ids)) in enumerate(
+                    self.__dataset.take_train(steps_per_epoch)):
+                batch_loss, predicted = self.train_step(input, target, encoder_hidden)
                 epoch_loss += batch_loss
                 # TODO train tests
+                if compile_train:
+                    train_tests = self.__dataset.take_train_tests(ids)
+                    for i, program in enumerate(predicted):
+                        if first:
+                            description = self.__dataset.decode_input(input[i])
+                        else:
+                            description = None
+                        compiled, passed = self.evaluate_program(
+                            epoch, program, args[i], return_types[i], train_tests[i], False, description
+                        )
+                        passed_tests += passed
+                        compiled_programs += compiled
+                        total_tests += len(train_tests[i])
+                        first = False
+
                 if batch % 100 == 0:
-                    print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
-                                                                 batch,
-                                                                 batch_loss.numpy()))
+                    print(
+                        'Epoch {} Batch {} Loss {:.4f}'.format(
+                            epoch + 1,
+                            batch,
+                            batch_loss
+                        )
+                    )
+
+            if compile_train:
+                passed_tests = passed_tests / total_tests
+                print(f"Train Compiled: {compiled_programs} Count: {self.__dataset.get_train_count()}")
+                compiled_programs = compiled_programs / self.__dataset.get_train_count()
+                self.__summary_writer.write_passed_test_count(passed_tests, epoch, False)
+                self.__summary_writer.write_compiled_programs(compiled_programs, epoch, False)
+
             if (epoch + 1) % 2 == 0:
                 checkpoint.save(file_prefix=checkpoint_prefix)
 
@@ -203,8 +241,9 @@ class Seq2Seq:
                     description = self.__dataset.decode_input(input[i])
                 else:
                     description = None
-                # TODO check program
-                compiled, passed = self.evaluate_program(epoch, program, args[i], return_types[i], validation_tests[i], description)
+                compiled, passed = self.evaluate_program(
+                    epoch, program, args[i], return_types[i], validation_tests[i], True, description
+                )
                 passed_tests += passed
                 compiled_programs += compiled
                 total_tests += len(validation_tests[i])
@@ -213,15 +252,15 @@ class Seq2Seq:
                 print(
                     'Validation: Batch {} Loss {:.4f}'.format(
                         batch,
-                        batch_loss.numpy()
+                        batch_loss
                     )
                 )
 
         passed_tests = passed_tests / total_tests
         print(f"Compiled: {compiled_programs} Count: {self.__dataset.get_val_count()}")
         compiled_programs = compiled_programs / self.__dataset.get_val_count()
-        self.__summary_writer.write_passed_test_count(passed_tests, epoch)
-        self.__summary_writer.write_compiled_val_programs(compiled_programs, epoch)
+        self.__summary_writer.write_passed_test_count(passed_tests, epoch, True)
+        self.__summary_writer.write_compiled_programs(compiled_programs, epoch, True)
         return val_loss
 
     def val_step(self, input, target, encoder_hidden):
@@ -244,23 +283,24 @@ class Seq2Seq:
             predicted_id = tf.reshape(predicted_id, (8, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
 
-
-        # print("Predicted shape", predicted.shape)
-        # print("Target shape", target.shape)
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
+        # TODO add levenshtein
         # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
         # tf.print("Loss", loss, output_stream=sys.stderr)
         # loss += levenstein_loss
         batch_loss = (loss / int(target.shape[1]))
         return batch_loss, predicted
 
-    def evaluate_program(self, epoch: int, encoded_program, program_args, program_return_type, tests, description: str = None) -> (int, int, int):
+    def evaluate_program(self, epoch: int, encoded_program, program_args, program_return_type, tests,
+                         is_validation: bool,
+                         description: str = None) -> (int, int, int):
         written = False
-        try:  # TODO get sub list to <end>
+        try:
             passed_tests = 0
             program, args = self.__dataset.decode_program(encoded_program, program_args)
             if description:
-                self.__summary_writer.write_generated_program(program, args, program_return_type, description, epoch)
+                self.__summary_writer.write_generated_program(program, args, program_return_type, description, epoch,
+                                                              is_validation)
                 written = True
             sys.setrecursionlimit(15000)
             return_type = program_return_type.numpy().decode("utf-8")
@@ -278,6 +318,12 @@ class Seq2Seq:
                 except ValueError as e:
                     print(e.args[0], file=sys.stderr)
                     continue
+                except TypeError as e:
+                    print(e.args[0], file=sys.stderr)
+                    continue
+                except IndexError as e:
+                    print(e.args[0], file=sys.stderr)
+                    continue
 
             # print(f"PassedTests: {passed_tests} Total:{len(tests)}")
             return 1, passed_tests
@@ -285,7 +331,7 @@ class Seq2Seq:
             print(f"CompilationError:{e.message}", file=sys.stderr)
             if description and not written:
                 text = " ".join(self.__dataset.get_program_tokens(encoded_program))
-                self.__summary_writer.write_generated_program(text, "", "", description, epoch)
+                self.__summary_writer.write_generated_program(text, "", "", description, epoch, is_validation)
             return 0, 0
 
     def set_summary_writer(self, summary_writer: TrainSummaryWriter):

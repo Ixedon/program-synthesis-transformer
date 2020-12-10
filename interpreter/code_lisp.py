@@ -530,8 +530,9 @@ def compile_statement(lisp_units, short_tree, argument_map=None, context=None, t
                     return ret
                     
                 except TypeError as e:
-                    print("TypeError %s calling %s, arguments: %s. Program: %s" % (
-                        str(e), func, values, statement))
+                    # TODO remove comment
+                    # print("TypeError %s calling %s, arguments: %s. Program: %s" % (
+                    #     str(e), func, values, statement))
                     raise
             ret = call_unit
             ret._original_lisp_code = statement
