@@ -42,15 +42,6 @@ class Seq2Seq:
     def get_trainable_variables(self):
         return self.__encoder.trainable_variables + self.__decoder.trainable_variables
 
-    # TODO add not compiled loss
-    def loss_function(self, target, prediction):
-        mask = tf.math.logical_not(tf.math.equal(target, 0))
-        # tf.print(mask)
-        loss = self.__loss(target, prediction)
-        mask = tf.cast(mask, dtype=loss.dtype)
-        loss *= mask
-        return tf.reduce_mean(loss)
-
     def encode(self, x, hidden):
         return self.__encoder(x, hidden)
 
@@ -96,27 +87,58 @@ class Seq2Seq:
         status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
         status.assert_existing_objects_matched()
 
+    # TODO add not compiled loss
+    def loss_function(self, target, prediction, compilation_mask):
+        # if not compilation_mask:
+        # print("Target", target.shape)
+        # print("Prediction", prediction.shape)
+        mask = tf.math.logical_not(tf.math.equal(target, 0))
+        loss = self.__loss(target, prediction)
+        mask = tf.cast(mask, dtype=loss.dtype)
+        loss *= mask
+        loss *= compilation_mask
+        return tf.reduce_mean(loss)
+
+    # TODO add levenshtein loss
+    def calculate_loss(self, predictions, target, compilation_mask):
+        batch_loss = 0
+        for i in range(1, target.shape[1]):
+            # print("Pred shape before:", predictions[:, i, :].shape)
+            pred = tf.reshape(predictions[:, i, :], (self.__batch_size, self.__dataset.target_vocab_size))
+            # print("Pred shape after:", pred.shape)
+            batch_loss += self.loss_function(target[:, i], pred, compilation_mask)
+        return batch_loss
+
     @tf.function
     def train_step(self, input, target, encoder_hidden):
         loss = 0
         predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
-        with GradientTape() as tape:
-            encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
+        predictions_collection = tf.zeros((self.__batch_size, 1, self.__dataset.target_vocab_size), dtype=tf.float32)
+        encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
 
-            decoder_hidden = encoder_hidden
-            decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
+        decoder_hidden = encoder_hidden
+        decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
 
-            for i in range(1, target.shape[1]):
-                predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
+        for i in range(1, target.shape[1]):
+            predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
 
-                # TODO calculate loss for all targets and add not compilation error
-                loss += self.loss_function(target[:, i], predictions)
+            # TODO calculate loss for all targets and add not compilation error
+            # loss += self.loss_function(target[:, i], predictions, tf.ones(self.__batch_size))
 
-                decoder_input = tf.expand_dims(target[:, i], 1)
+            decoder_input = tf.expand_dims(target[:, i], 1)
 
-                predicted_id = tf.argmax(predictions, axis=1)
-                predicted_id = tf.reshape(predicted_id, (8, 1))
-                predicted = tf.concat([predicted, predicted_id], axis=1)
+            predicted_id = tf.argmax(predictions, axis=1)
+            predicted_id = tf.reshape(predicted_id, (8, 1))
+            predicted = tf.concat([predicted, predicted_id], axis=1)
+            predictions_collection = tf.concat(
+                [
+                    predictions_collection,
+                    tf.reshape(predictions, (self.__batch_size, 1, self.__dataset.target_vocab_size))
+                ],
+                axis=1
+            )
+
+        # print("Pred collection:", predictions_collection.shape)
 
         # TODO for levensgtein
         # predicted = tf.cast(tf.reshape(predicted, targ.shape), tf.int32)
@@ -126,11 +148,10 @@ class Seq2Seq:
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
         batch_loss = (loss / int(target.shape[1]))
 
-        # TODO evaluate predicted here and double loss if not compiled
+        # gradients = tape.gradient(loss, self.get_trainable_variables())
+        # self.__optimizer.apply_gradients(zip(gradients, self.get_trainable_variables()))
 
-        gradients = tape.gradient(loss, self.get_trainable_variables())
-        self.__optimizer.apply_gradients(zip(gradients, self.get_trainable_variables()))
-        return batch_loss, predicted
+        return predictions_collection, predicted
 
     def train(self, epochs: int, compile_train: bool) -> None:
         current_date = datetime.date.today()
@@ -153,7 +174,7 @@ class Seq2Seq:
             encoder=self.__encoder,
             decoder=self.__decoder
         )
-        min_loss = 100000
+        min_loss = 10_0000
 
         min_val_loss_checkpoint_dir = "min_val_loss_checkpoint-" + current_date
         min_val_loss_checkpoint_prefix = os.path.join(min_val_loss_checkpoint_dir, "ckpt")
@@ -162,7 +183,7 @@ class Seq2Seq:
             encoder=self.__encoder,
             decoder=self.__decoder
         )
-        min_val_los = 10000
+        min_val_los = 10_000
         val_steps_per_epoch = self.__dataset.get_val_count() // self.__batch_size
         steps_per_epoch = self.__dataset.get_train_count() // self.__batch_size
         for epoch in range(epochs):
@@ -174,25 +195,41 @@ class Seq2Seq:
             passed_tests = 0
             total_tests = 0
             first = True
-            for (batch, (input, target, return_types, args, ids)) in enumerate(
-                    self.__dataset.take_train(steps_per_epoch)):
-                batch_loss, predicted = self.train_step(input, target, encoder_hidden)
-                epoch_loss += batch_loss
-                # TODO train tests
-                if compile_train:
-                    train_tests = self.__dataset.take_train_tests(ids)
-                    for i, program in enumerate(predicted):
-                        if first:
-                            description = self.__dataset.decode_input(input[i])
-                        else:
-                            description = None
-                        compiled, passed = self.evaluate_program(
-                            epoch, program, args[i], return_types[i], train_tests[i], False, description
-                        )
-                        passed_tests += passed
-                        compiled_programs += compiled
-                        total_tests += len(train_tests[i])
-                        first = False
+            for (batch, (text, target, return_types, args, ids)) in enumerate(
+                    self.__dataset.take_train(steps_per_epoch)
+            ):
+                with GradientTape() as tape:
+
+                    predictions, predicted = self.train_step(text, target, encoder_hidden)
+                    compilation_loss_mask = tf.ones(1)
+                    if compile_train:
+                        train_tests = self.__dataset.take_train_tests(ids)
+                        for i, program in enumerate(predicted):
+                            if first:
+                                description = self.__dataset.decode_input(text[i])
+                            else:
+                                description = None
+                            compiled, passed = self.evaluate_program(
+                                epoch, program, args[i], return_types[i], train_tests[i], False, description
+                            )
+                            if compiled == 0:
+                                compilation_loss_mask = tf.concat([compilation_loss_mask, [2]], axis=0)
+                            else:
+                                compilation_loss_mask = tf.concat([compilation_loss_mask, [1]], axis=0)
+
+                            passed_tests += passed
+                            compiled_programs += compiled
+                            total_tests += len(train_tests[i])
+                            first = False
+                        compilation_loss_mask = compilation_loss_mask[1:]
+                    # print("Comp mask", compilation_loss_mask)
+                    batch_loss = self.calculate_loss(predictions, target, compilation_loss_mask)
+                    batch_loss = (batch_loss / int(target.shape[1]))
+
+                    gradients = tape.gradient(batch_loss, self.get_trainable_variables())
+                    self.__optimizer.apply_gradients(zip(gradients, self.get_trainable_variables()))
+
+                    epoch_loss += batch_loss
 
                 if batch % 100 == 0:
                     print(
@@ -274,7 +311,8 @@ class Seq2Seq:
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
 
-            loss += self.loss_function(target[:, i], predictions)
+            # TODO add compilation loss
+            loss += self.loss_function(target[:, i], predictions, tf.ones(self.__batch_size))
 
             decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)

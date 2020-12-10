@@ -9,5 +9,7 @@ Run model training:
 ```
 python train.py
 ```
+During the training stats are available on localhost link displayed in console.
+Default link is [localhost:6006](http://localhost:6006/)
 
 Interpreter from [link](https://github.com/nearai/program_synthesis).
