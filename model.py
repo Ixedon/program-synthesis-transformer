@@ -270,9 +270,9 @@ class Seq2Seq:
         total_tests = 0
         first = True
         for (batch, (input, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
-            batch_loss, predicted = self.val_step(input, target, encoder_hidden)
-            val_loss += batch_loss
+            predictions, predicted = self.val_step(input, target, encoder_hidden)
             validation_tests = self.__dataset.take_val_tests(ids)
+            compilation_loss_mask = tf.ones(1)
             for i, program in enumerate(predicted):
                 if first:
                     description = self.__dataset.decode_input(input[i])
@@ -281,10 +281,19 @@ class Seq2Seq:
                 compiled, passed = self.evaluate_program(
                     epoch, program, args[i], return_types[i], validation_tests[i], True, description
                 )
+                if compiled == 0:
+                    compilation_loss_mask = tf.concat([compilation_loss_mask, [2]], axis=0)
+                else:
+                    compilation_loss_mask = tf.concat([compilation_loss_mask, [1]], axis=0)
                 passed_tests += passed
                 compiled_programs += compiled
                 total_tests += len(validation_tests[i])
-                first = False
+
+            compilation_loss_mask = compilation_loss_mask[1:]
+            batch_loss = self.calculate_loss(predictions, target, compilation_loss_mask)
+            batch_loss = (batch_loss / int(target.shape[1]))
+            val_loss += batch_loss
+
             if batch % 100 == 0:
                 print(
                     'Validation: Batch {} Loss {:.4f}'.format(
@@ -304,6 +313,7 @@ class Seq2Seq:
         loss = 0
         predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
         encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
+        predictions_collection = tf.zeros((self.__batch_size, 1, self.__dataset.target_vocab_size), dtype=tf.float32)
 
         decoder_hidden = encoder_hidden
         decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
@@ -312,7 +322,7 @@ class Seq2Seq:
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
 
             # TODO add compilation loss
-            loss += self.loss_function(target[:, i], predictions, tf.ones(self.__batch_size))
+            # loss += self.loss_function(target[:, i], predictions, tf.ones(self.__batch_size))
 
             decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)
@@ -321,13 +331,21 @@ class Seq2Seq:
             predicted_id = tf.reshape(predicted_id, (8, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
 
+            predictions_collection = tf.concat(
+                [
+                    predictions_collection,
+                    tf.reshape(predictions, (self.__batch_size, 1, self.__dataset.target_vocab_size))
+                ],
+                axis=1
+            )
+
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
         # TODO add levenshtein
         # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
         # tf.print("Loss", loss, output_stream=sys.stderr)
         # loss += levenstein_loss
-        batch_loss = (loss / int(target.shape[1]))
-        return batch_loss, predicted
+        # batch_loss = (loss / int(target.shape[1]))
+        return predictions_collection, predicted
 
     def evaluate_program(self, epoch: int, encoded_program, program_args, program_return_type, tests,
                          is_validation: bool,
@@ -360,6 +378,9 @@ class Seq2Seq:
                     print(e.args[0], file=sys.stderr)
                     continue
                 except IndexError as e:
+                    print(e.args[0], file=sys.stderr)
+                    continue
+                except AttributeError as e:
                     print(e.args[0], file=sys.stderr)
                     continue
 
