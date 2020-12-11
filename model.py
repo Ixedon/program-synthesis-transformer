@@ -310,7 +310,6 @@ class Seq2Seq:
         return val_loss
 
     def val_step(self, input, target, encoder_hidden):
-        loss = 0
         predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
         encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
         predictions_collection = tf.zeros((self.__batch_size, 1, self.__dataset.target_vocab_size), dtype=tf.float32)
@@ -321,13 +320,8 @@ class Seq2Seq:
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
 
-            # TODO add compilation loss
-            # loss += self.loss_function(target[:, i], predictions, tf.ones(self.__batch_size))
-
             decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)
-            # print("Predicted_id", predicted_id)
-            # print("Predicted_id shape", predicted_id.shape)
             predicted_id = tf.reshape(predicted_id, (8, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
 
