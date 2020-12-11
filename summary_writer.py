@@ -46,7 +46,7 @@ class TrainSummaryWriter:
             self.__train_writer.flush()
 
     def write_generated_program(self, program, args, return_type, description, step: int, is_validation: bool):
-        text = f"Args: {args}\n" \
+        text = f"Args: {args}<br>" \
                f"Program: {program}\n" \
                f"Return type: {return_type}"
         if is_validation:
