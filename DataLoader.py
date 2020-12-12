@@ -19,7 +19,7 @@ def load_programs_json(path, number=None):
             n = number
         else:
             n = len(lines)
-        for line in tqdm(lines[:n]):
+        for line in tqdm(lines[:n], desc=f"Loading programs from jsonl file ({path})"):
             ob = json.loads(line)
             data_dict["text"].append(" ".join(ob['text']))
             data_dict["short_tree"].append(ob["short_tree"])
@@ -81,7 +81,6 @@ def encode_command(command: list):
 
 
 def decode_program(program_text, args_tokens):
-    # TODO think about strings
     try:
         args = decode_args(args_tokens.numpy().decode('utf-8').split())
         command = decode_command(program_text)

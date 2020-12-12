@@ -13,8 +13,8 @@ if __name__ == '__main__':
     assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-    dataset = DataSet(8, 5_000, 100)
-    model = Seq2Seq(128, 256, dataset)
+    dataset = DataSet(10, 80_000, 10_000, True)
+    model = Seq2Seq(128, 320, dataset)
     summary_writer = TrainSummaryWriter("logs")
     model.set_summary_writer(summary_writer)
 
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     tensorboard_process = subprocess.Popen(f"tensorboard --logdir={logs_dir}")
     try:
         model.train(10, True)
-        model.load_last("10-12-2020")
+        model.load_last("12-12-2020")
         print(model.evaluate_sentence("given an array of numbers what is first half of the given array"))
         tensorboard_process.send_signal(signal.CTRL_C_EVENT)
         print("Tensorboard killed")

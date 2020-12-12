@@ -118,7 +118,6 @@ class Seq2Seq:
 
         decoder_hidden = encoder_hidden
         decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
-
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
 
@@ -128,7 +127,7 @@ class Seq2Seq:
             decoder_input = tf.expand_dims(target[:, i], 1)
 
             predicted_id = tf.argmax(predictions, axis=1)
-            predicted_id = tf.reshape(predicted_id, (8, 1))
+            predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
             predictions_collection = tf.concat(
                 [
@@ -198,6 +197,8 @@ class Seq2Seq:
             for (batch, (text, target, return_types, args, ids)) in enumerate(
                     self.__dataset.take_train(steps_per_epoch)
             ):
+                if epoch == 0 and batch == 0:
+                    print(f"Output tensor shape {target.shape}")
                 with GradientTape() as tape:
 
                     predictions, predicted = self.train_step(text, target, encoder_hidden)
@@ -288,7 +289,7 @@ class Seq2Seq:
                 passed_tests += passed
                 compiled_programs += compiled
                 total_tests += len(validation_tests[i])
-
+                first = False
             compilation_loss_mask = compilation_loss_mask[1:]
             batch_loss = self.calculate_loss(predictions, target, compilation_loss_mask)
             batch_loss = (batch_loss / int(target.shape[1]))
@@ -322,7 +323,7 @@ class Seq2Seq:
 
             decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)
-            predicted_id = tf.reshape(predicted_id, (8, 1))
+            predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
 
             predictions_collection = tf.concat(
@@ -355,6 +356,7 @@ class Seq2Seq:
             sys.setrecursionlimit(15000)
             return_type = program_return_type.numpy().decode("utf-8")
             statement = self.__dataset.compile_func(program, args, return_type)
+            no_error = True
             for i in range(len(tests)):
                 test_input = tests[i]['input']
                 test_output = tests[i]['output']
@@ -366,20 +368,33 @@ class Seq2Seq:
                     if o == test_output:
                         passed_tests += 1
                 except ValueError as e:
-                    print(e.args[0], file=sys.stderr)
+                    no_error = False
+                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
                     continue
                 except TypeError as e:
-                    print(e.args[0], file=sys.stderr)
+                    no_error = False
+                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
                     continue
                 except IndexError as e:
-                    print(e.args[0], file=sys.stderr)
+                    no_error = False
+                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
                     continue
                 except AttributeError as e:
-                    print(e.args[0], file=sys.stderr)
+                    no_error = False
+                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                    continue
+                except KeyError as e:
+                    no_error = False
+                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                    continue
+                except AssertionError as e:
+                    no_error = False
+                    print(f"Tests error: {e}", file=sys.stderr)
                     continue
 
             # print(f"PassedTests: {passed_tests} Total:{len(tests)}")
-            return 1, passed_tests
+            compiled = 1 if no_error else 0
+            return compiled, passed_tests
         except NotCompiledError as e:
             print(f"CompilationError:{e.message}", file=sys.stderr)
             if description and not written:

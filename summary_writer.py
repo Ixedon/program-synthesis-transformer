@@ -46,22 +46,17 @@ class TrainSummaryWriter:
             self.__train_writer.flush()
 
     def write_generated_program(self, program, args, return_type, description, step: int, is_validation: bool):
-        text = f"Args: {args}<br>" \
-               f"Program: {program}\n" \
+        text = f"Description: {description}<br>" \
+               f"Args: {args}<br>" \
+               f"Program: {program}<br>" \
                f"Return type: {return_type}"
         if is_validation:
             with self.__val_writer.as_default():
                 summary.text("program", text, step)
             self.__val_writer.flush()
-            with self.__val_writer.as_default():
-                summary.text("description", description, step)
-            self.__val_writer.flush()
         else:
             with self.__train_writer.as_default():
                 summary.text("program", text, step)
-            self.__val_writer.flush()
-            with self.__train_writer.as_default():
-                summary.text("description", description, step)
             self.__train_writer.flush()
 
     def write_mean_levenshtein_distance(self, train_levenshtein, val_levenshtein, step):
