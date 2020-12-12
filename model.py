@@ -127,7 +127,7 @@ class Seq2Seq:
             decoder_input = tf.expand_dims(target[:, i], 1)
 
             predicted_id = tf.argmax(predictions, axis=1)
-            predicted_id = tf.reshape(predicted_id, (8, 1))
+            predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
             predictions_collection = tf.concat(
                 [
@@ -323,7 +323,7 @@ class Seq2Seq:
 
             decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)
-            predicted_id = tf.reshape(predicted_id, (8, 1))
+            predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
 
             predictions_collection = tf.concat(

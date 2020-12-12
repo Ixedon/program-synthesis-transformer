@@ -12,9 +12,7 @@ additional_tokens = {
 rev_add_tokens = {v: k for k, v in additional_tokens.items()}
 
 lambda_args = ["arg1", "arg2"]
-# lambdas = ["lambda1", "lambda2"]
 self_args = ["self"]
-# last_function_arguments = ["reduce"]
 partials = ["partial0", "partial1"]
 
 DEBUG = False
@@ -140,13 +138,6 @@ def process_reduce(command_tokens, program_args, lisp_units):
 
     return program, command_tokens
 
-# TODO processing lambdas
-# TODO processing partials - done
-# TODO processing combined - done
-# TODO processing filter - done
-# TODO processing invokes
-# TODO processing map - done
-
 
 def decode_command_no_brackets(command_tokens, program_args, lisp_units):
     if not command_tokens:
@@ -179,16 +170,6 @@ def decode_command_no_brackets(command_tokens, program_args, lisp_units):
             print("Returning partial", program)
         return program, command_tokens
 
-    # TODO delete old partials
-    # if current_command == "partial0":
-    # # If command is partial1
-    # if current_command == "partial1":
-    #     program, command_tokens = process_partial1(command_tokens, program_args)
-    #     print("Returning partial1", program)
-    #     return program, command_tokens
-
-    # if current_command in partials:
-    #     process_partial(command_tokens)
     # If command is combine
     if current_command == "combine":
         program, current_tokens = process_combine(command_tokens, program_args, lisp_units)
@@ -278,7 +259,6 @@ def main():
             return_type = str_to_type(programs["return_type"][i])
             statement = compile_func(units1, "test", decoded, args, return_type)
 
-            # TODO check tests
             tests = programs["tests"][i]
             for j in range(len(tests)):
                 test_input = tests[j]["input"]
