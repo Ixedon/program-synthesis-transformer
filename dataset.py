@@ -2,21 +2,24 @@ import json
 import os
 import re
 from json.decoder import JSONDecodeError
+from tqdm import tqdm
 
 from tensorflow.data import Dataset
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 
-from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError
+from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError, encode_args, decode_args
 from interpreter.code_lisp import load_lisp_units, str_to_type, compile_func
+from load_data_no_brackets import encode_program_no_brackets, decode_command_no_brackets
 
 
 class DataSet:
 
-    def __init__(self, batch_size, total_train_count, total_val_count):
+    def __init__(self, batch_size, total_train_count, total_val_count, with_brackets):
 
+        self.with_brackets = with_brackets
         self.input_tokenizer: Tokenizer = Tokenizer(filters='')
-        self.target_tokenizer: Tokenizer = Tokenizer(filters='')
+        self.target_tokenizer: Tokenizer = Tokenizer(filters='')  # , oov_token="")  #  remove oov
 
         self.input_vocab_size = None
         self.target_vocab_size = None
@@ -29,12 +32,11 @@ class DataSet:
         self.batch_size = batch_size
 
         self.tf_train_dataset, self.__train_tests, self.total_train_count = self.__create_dataset(
-            "metaset3.train.jsonl", total_train_count, True
+            "metaset3.train.jsonl", total_train_count, "training", True
         )
         self.tf_val_dataset, self.__val_tests, self.total_val_count = self.__create_dataset(
-            "metaset3.dev.jsonl", total_val_count
+            "metaset3.dev.jsonl", total_val_count, "validation"
         )
-
         self.lips_units = load_lisp_units()
 
     def __fit_tokenizers(self, texts, programs):
@@ -62,15 +64,21 @@ class DataSet:
         programs_tensor = pad_sequences(programs_tensor, self.max_target_length, padding='post')
         return text_tensor, programs_tensor
 
-    def __create_dataset(self, dataset_name: str, max_total_count: int, fit_tokenizer=False) -> (Dataset, list, int):
-        programs_data = load_programs_json(os.path.join("cleared_data", dataset_name))
+    def __create_dataset(self, dataset_name: str, max_total_count: int, dataset_description: str,
+                         fit_tokenizer=False) -> (Dataset, list, int):
+        programs_data = load_programs_json(os.path.join("cleared_data", dataset_name))  # TODO remove num
         texts = [self.preprocess_sentence(w) for w in programs_data['text']]
         programs_tokenized = []
         ids = []
         return_types = []
         args = []
-        for i in range(len(programs_data["short_tree"])):
-            program, program_args = tokenize_program(programs_data["short_tree"][i], programs_data["args"][i])
+        desc = f"Preparing {dataset_description} dataset"
+        for i in tqdm(range(len(programs_data["short_tree"])), desc=desc):
+            if self.with_brackets:
+                program = encode_program_no_brackets(programs_data["short_tree"][i])
+                program_args = encode_args(programs_data["args"][i])
+            else:
+                program, program_args = tokenize_program(programs_data["short_tree"][i], programs_data["args"][i])
             programs_tokenized.append('<start> ' + program + ' <end>')
             return_types.append(programs_data["return_type"][i])
             args.append(program_args)
@@ -86,29 +94,6 @@ class DataSet:
             ids[:max_total_count]
         )).shuffle(tensor_len)
         return dataset.batch(self.batch_size, drop_remainder=True), programs_data['tests'], tensor_len
-
-    # def __create_val_dataset(self) -> Dataset:
-    #     programs = load_programs_json(os.path.join("cleared_data", "metaset3.dev.jsonl"), self.total_val_count)
-    #     texts = [self.preprocess_sentence(w) for w in programs['text']]
-    #     self.__val_tests = programs['tests']
-    #     programs_tokenized = []
-    #     ids = []
-    #     return_types = []
-    #     args = []
-    #     for i in range(len(programs["short_tree"])):
-    #         program, program_args = tokenize_program(programs["short_tree"][i], programs["args"][i])
-    #         programs_tokenized.append('<start> ' + program + ' <end>')
-    #         return_types.append(programs["return_type"][i])
-    #         args.append(program_args)
-    #         ids.append(i)
-    #     texts, programs = self.__tokenize_programs(texts, programs_tokenized)
-    #     tensor_len = len(programs[:self.total_val_count])
-    #     dataset = Dataset.from_tensor_slices((
-    #         texts[:self.total_val_count], programs[:self.total_val_count], return_types[:self.total_val_count],
-    #         args[:self.total_val_count], ids[:self.total_val_count]
-    #     )).shuffle(tensor_len)
-    #     self.total_val_count = tensor_len
-    #     return dataset.batch(self.batch_size, drop_remainder=True)
 
     def get_target_index(self, word: str):
         return self.target_tokenizer.word_index[word]
@@ -178,13 +163,28 @@ class DataSet:
         return program
 
     def decode_program(self, encoded_program, program_args):
+        if self.with_brackets:
+            args = decode_args(program_args.numpy().decode('utf-8').split())
+            try:
+                return decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
+                                                  self.lips_units)[0], args
+            except KeyError as e:
+                raise NotCompiledError(e.args[0])
+            except IndexError as e:
+                raise NotCompiledError(e.args[0])
+            except Exception as e:
+                print("Program tokens", self.get_program_tokens(encoded_program))
+                print("Args", args)
+                raise e
+            # TODO errors handling
         return decode_program(" ".join(self.get_program_tokens(encoded_program)), program_args)
 
     def compile_func(self, program, args, return_type):
-        program = program.replace('"', '\\"')
-        program = program.replace("'", '"')
         try:
-            program = json.loads(program)
+            if not self.with_brackets:
+                program = program.replace('"', '\\"')
+                program = program.replace("'", '"')
+                program = json.loads(program)
             args = [(key, str_to_type(args[key])) for key in args.keys()]
             return_type = str_to_type(return_type)
             return compile_func(self.lips_units, "program", program, args, return_type)
@@ -197,6 +197,9 @@ class DataSet:
         except TypeError as e:
             raise NotCompiledError(e.args[0])
         except Exception as e:
-            print(e.args)
-            print(program)
-            exit(-50)
+            print("Exception", e.args)
+            print("Exception type", type(e))
+            print("Program", program)
+            print("Args", args)
+            print("Return type", return_type)
+            raise e

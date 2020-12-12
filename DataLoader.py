@@ -19,7 +19,7 @@ def load_programs_json(path, number=None):
             n = number
         else:
             n = len(lines)
-        for line in tqdm(lines[:n]):
+        for line in tqdm(lines[:n], desc=f"Loading programs from jsonl file ({path})"):
             ob = json.loads(line)
             data_dict["text"].append(" ".join(ob['text']))
             data_dict["short_tree"].append(ob["short_tree"])
