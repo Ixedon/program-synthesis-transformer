@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 
 from DataLoader import load_programs_json
 from interpreter.code_lisp import load_lisp_units, str_to_type, compile_func
@@ -200,7 +201,8 @@ def decode_command_no_brackets(command_tokens, program_args, lisp_units):
     program = []
     # If command is self
     if current_command in self_args:
-        program.append(current_command)
+        if current_command:
+            program.append(current_command)
         next_arg, command_tokens = decode_command_no_brackets(command_tokens, program_args, lisp_units)
         if next_arg:
             program.append(next_arg)
@@ -216,7 +218,8 @@ def decode_command_no_brackets(command_tokens, program_args, lisp_units):
     # If command has no args
     if args_count == 0:
         return current_command, command_tokens
-    program.append(current_command)
+    if current_command:
+        program.append(current_command)
 
     i = 0
     while i < args_count:

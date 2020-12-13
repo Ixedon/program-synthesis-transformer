@@ -149,6 +149,18 @@ class NotCompiledError(Exception):
         super(NotCompiledError, self).__init__(f"Compilation Error: {message}")
 
 
+class CompilationTimeout(Exception):
+    def __init__(self, program):
+        self.program = program
+        super(CompilationTimeout, self).__init__(f"Compilation timeout: {program}")
+
+
+class RunningTimeout(Exception):
+    def __init__(self, program):
+        self.program = program
+        super(RunningTimeout, self).__init__(f"Running timeout: {program}")
+
+
 if __name__ == '__main__':
     file_path = os.path.join("cleared_data", "metaset3.train.jsonl")
     programs = load_programs_json(file_path)
