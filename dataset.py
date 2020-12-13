@@ -3,12 +3,14 @@ import os
 import re
 from json.decoder import JSONDecodeError
 from tqdm import tqdm
+import concurrent.futures as futures
 
 from tensorflow.data import Dataset
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 
-from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError, encode_args, decode_args
+from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError, encode_args, decode_args, \
+    CompilationTimeout
 from interpreter.code_lisp import load_lisp_units, str_to_type, compile_func
 from load_data_no_brackets import encode_program_no_brackets, decode_command_no_brackets
 
@@ -166,8 +168,21 @@ class DataSet:
         if self.with_brackets:
             args = decode_args(program_args.numpy().decode('utf-8').split())
             try:
-                return decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
-                                                  self.lips_units)[0], args
+                with futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(decode_command_no_brackets, self.get_program_tokens(encoded_program), args.keys(), self.lips_units)
+                    try:
+                        program = future.result(180)[0]
+                        executor._threads.clear()
+                        futures.thread._threads_queues.clear()
+                        return program, args
+                    except futures.TimeoutError:
+                        executor._threads.clear()
+                        futures.thread._threads_queues.clear()
+                        raise CompilationTimeout(self.get_program_tokens(encoded_program))
+                # return decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
+                #                                   self.lips_units)[0], args
+            except CompilationTimeout as e:
+                raise NotCompiledError(f"Compilation timeout: {e.program}")
             except KeyError as e:
                 raise NotCompiledError(e.args[0])
             except IndexError as e:

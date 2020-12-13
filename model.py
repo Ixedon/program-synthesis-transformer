@@ -2,15 +2,17 @@ import datetime
 import os
 import sys
 import time
+import gc
 
 import tensorflow as tf
+import concurrent.futures as futures
 from tensorflow import GradientTape
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
 
-from DataLoader import NotCompiledError
+from DataLoader import NotCompiledError, RunningTimeout
 from dataset import DataSet
 from summary_writer import TrainSummaryWriter
 
@@ -232,6 +234,9 @@ class Seq2Seq:
 
                     epoch_loss += batch_loss
 
+                del predictions
+                del compilation_loss_mask
+
                 if batch % 100 == 0:
                     print(
                         'Epoch {} Batch {} Loss {:.4f}'.format(
@@ -248,8 +253,8 @@ class Seq2Seq:
                 self.__summary_writer.write_passed_test_count(passed_tests, epoch, False)
                 self.__summary_writer.write_compiled_programs(compiled_programs, epoch, False)
 
-            if (epoch + 1) % 2 == 0:
-                checkpoint.save(file_prefix=checkpoint_prefix)
+            # if (epoch + 1) % 2 == 0:
+            checkpoint.save(file_prefix=checkpoint_prefix)
 
             val_loss = self.validate(epoch)
             if val_loss / val_steps_per_epoch < min_val_los:
@@ -294,7 +299,9 @@ class Seq2Seq:
             batch_loss = self.calculate_loss(predictions, target, compilation_loss_mask)
             batch_loss = (batch_loss / int(target.shape[1]))
             val_loss += batch_loss
-
+            del predictions
+            del predicted
+            gc.collect()
             if batch % 100 == 0:
                 print(
                     'Validation: Batch {} Loss {:.4f}'.format(
@@ -353,7 +360,6 @@ class Seq2Seq:
                 self.__summary_writer.write_generated_program(program, args, program_return_type, description, epoch,
                                                               is_validation)
                 written = True
-            sys.setrecursionlimit(15000)
             return_type = program_return_type.numpy().decode("utf-8")
             statement = self.__dataset.compile_func(program, args, return_type)
             no_error = True
@@ -362,36 +368,60 @@ class Seq2Seq:
                 test_output = tests[i]['output']
                 test_args = [test_input[a] for a in test_input.keys()]
                 try:
-                    o = statement(*test_args)
-                    if isinstance(o, range):
-                        o = list(o)
-                    if o == test_output:
-                        passed_tests += 1
+                    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(statement, *test_args)
+                        try:
+                            o = future.result(180)
+                        # o = statement(*test_args)
+                            if isinstance(o, range):
+                                o = list(o)
+                            if o == test_output:
+                                passed_tests += 1
+                            executor._threads.clear()
+                            futures.thread._threads_queues.clear()
+                        except futures.TimeoutError:
+                            executor._threads.clear()
+                            futures.thread._threads_queues.clear()
+                            raise RunningTimeout(program)
+                except RunningTimeout as e:
+                    no_error = False
+                    print(f"Test error: Running timeout {e.program}")
+                    break
                 except ValueError as e:
                     no_error = False
                     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    continue
+                    break
                 except TypeError as e:
                     no_error = False
                     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    continue
+                    break
                 except IndexError as e:
                     no_error = False
                     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    continue
+                    break
                 except AttributeError as e:
                     no_error = False
                     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    continue
+                    break
                 except KeyError as e:
                     no_error = False
                     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    continue
+                    break
+                except MemoryError as e:
+                    no_error = False
+                    print(e)
+                    break
                 except AssertionError as e:
                     no_error = False
                     print(f"Tests error: {e}", file=sys.stderr)
-                    continue
-
+                    break
+                except Exception as e:
+                    no_error = False
+                    print(f"Other Tests error: {e}", file=sys.stderr)
+                    break
+            del statement
+            del program
+            gc.collect()
             # print(f"PassedTests: {passed_tests} Total:{len(tests)}")
             compiled = 1 if no_error else 0
             return compiled, passed_tests
@@ -399,7 +429,7 @@ class Seq2Seq:
             print(f"CompilationError:{e.message}", file=sys.stderr)
             if description and not written:
                 text = " ".join(self.__dataset.get_program_tokens(encoded_program))
-                self.__summary_writer.write_generated_program(text, "", "", description, epoch, is_validation)
+                self.__summary_writer.write_generated_program(text, f"CompilationError: {e.message}", "", description, epoch, is_validation)
             return 0, 0
 
     def set_summary_writer(self, summary_writer: TrainSummaryWriter):
