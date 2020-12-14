@@ -41,17 +41,18 @@ if __name__ == '__main__':
                 filtered_programs.append(i)
 
         print(f"File {file}: {j}")
-        with open(os.path.join("filtered_data", file), "w") as f:
+        with open(os.path.join("filtered_data", file), "w", encoding="utf-8") as f:
+            lines = []
             for i in filtered_programs:
-                f.write(json.dumps({
-                    "text": programs["text"][i],
+                lines.append(json.dumps({
+                    "text": programs["text"][i].split(),
                     "short_tree": programs["short_tree"][i],
                     "args": programs["args"][i],
                     "return_type": programs["return_type"][i],
                     "tests": programs["tests"][i]
                 }) + "\n")
+            f.writelines(lines)
             f.close()
-
     # print(programs["text"][66824])
     # print(programs["short_tree"][66824])
     # units = load_lisp_units()

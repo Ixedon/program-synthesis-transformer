@@ -391,7 +391,7 @@ class Seq2Seq:
                 written = True
             return_type = program_return_type.numpy().decode("utf-8")
             # print(self.__dataset.get_program_tokens(encoded_program))
-            print(program)
+            print("Prog", program)
             statement = self.__dataset.compile_func(program, args, return_type)
             no_error = True
             for i in range(len(tests)):
