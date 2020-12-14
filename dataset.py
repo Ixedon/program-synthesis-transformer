@@ -167,30 +167,31 @@ class DataSet:
     def decode_program(self, encoded_program, program_args):
         if self.with_brackets:
             args = decode_args(program_args.numpy().decode('utf-8').split())
-            try:
-                with futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(decode_command_no_brackets, self.get_program_tokens(encoded_program), args.keys(), self.lips_units)
-                    try:
-                        program = future.result(180)[0]
-                        executor._threads.clear()
-                        futures.thread._threads_queues.clear()
-                        return program, args
-                    except futures.TimeoutError:
-                        executor._threads.clear()
-                        futures.thread._threads_queues.clear()
-                        raise CompilationTimeout(self.get_program_tokens(encoded_program))
-                # return decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
-                #                                   self.lips_units)[0], args
-            except CompilationTimeout as e:
-                raise NotCompiledError(f"Compilation timeout: {e.program}")
-            except KeyError as e:
-                raise NotCompiledError(e.args[0])
-            except IndexError as e:
-                raise NotCompiledError(e.args[0])
-            except Exception as e:
-                print("Program tokens", self.get_program_tokens(encoded_program))
-                print("Args", args)
-                raise e
+            # try:
+            #     with futures.ThreadPoolExecutor(max_workers=1) as executor:
+            #         future = executor.submit(decode_command_no_brackets, self.get_program_tokens(encoded_program), args.keys(), self.lips_units)
+            #         try:
+            #             program = future.result(180)[0]
+            #             print(program)
+            #             executor._threads.clear()
+            #             futures.thread._threads_queues.clear()
+            #             return program, args
+            #         except futures.TimeoutError:
+            #             executor._threads.clear()
+            #             futures.thread._threads_queues.clear()
+            #             raise CompilationTimeout(self.get_program_tokens(encoded_program))
+            return decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
+                                              self.lips_units)[0], args
+            # except CompilationTimeout as e:
+            #     raise NotCompiledError(f"Compilation timeout: {e.program}")
+            # except KeyError as e:
+            #     raise NotCompiledError(e.args[0])
+            # except IndexError as e:
+            #     raise NotCompiledError(e.args[0])
+            # except Exception as e:
+            #     print("Program tokens", self.get_program_tokens(encoded_program))
+            #     print("Args", args)
+            #     raise e
             # TODO errors handling
         return decode_program(" ".join(self.get_program_tokens(encoded_program)), program_args)
 
