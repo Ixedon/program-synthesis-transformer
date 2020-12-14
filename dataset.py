@@ -68,7 +68,7 @@ class DataSet:
 
     def __create_dataset(self, dataset_name: str, max_total_count: int, dataset_description: str,
                          fit_tokenizer=False) -> (Dataset, list, int):
-        programs_data = load_programs_json(os.path.join("cleared_data", dataset_name))  # TODO remove num
+        programs_data = load_programs_json(os.path.join("filtered_data", dataset_name))  # TODO remove num
         texts = [self.preprocess_sentence(w) for w in programs_data['text']]
         programs_tokenized = []
         ids = []

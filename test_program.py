@@ -1,6 +1,8 @@
 import json
 import concurrent.futures as futures
+import os
 import time
+from DataLoader import load_programs_json
 
 from interpreter.code_lisp import load_lisp_units, compile_func, str_to_type
 
@@ -27,8 +29,31 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    files = ["metaset3.test.jsonl", "metaset3.train.jsonl", "metaset3.dev.jsonl"]
+    for file in files:
 
+        programs = load_programs_json(os.path.join("cleared_data", file))
+        filtered_programs = []
+        j = 0
+        for i in range(len(programs["short_tree"])):
+            if "1000000000" not in json.dumps(programs["short_tree"][i]):
+                j += 1
+                filtered_programs.append(i)
+
+        print(f"File {file}: {j}")
+        with open(os.path.join("filtered_data", file), "w") as f:
+            for i in filtered_programs:
+                f.write(json.dumps({
+                    "text": programs["text"][i],
+                    "short_tree": programs["short_tree"][i],
+                    "args": programs["args"][i],
+                    "return_type": programs["return_type"][i],
+                    "tests": programs["tests"][i]
+                }) + "\n")
+            f.close()
+
+    # print(programs["text"][66824])
+    # print(programs["short_tree"][66824])
     # units = load_lisp_units()
     # program_original = json.loads("['slice', 'a', ['invoke1', ['lambda1', ['if', ['<=', 'arg1', '1'], '1', ['*', ['self', ['-', 'arg1', '1']], 'arg1']]], ['reduce', ['reverse', ['digits', 'b']], '0', ['lambda2', ['+', ['*', 'arg1', '10'], 'arg2']]]], 'c']".replace("'", '"'))
     # program_decoded  = json.loads("['+', 'a', ['invoke1', ['lambda1', ['if', ['==', ['len', ['digits', 'arg1']], '1'], '0', ['+', '1', ['self', ['reduce', ['digits', 'arg1'], '0', '+']]]]], ['invoke1', ['lambda1', ['if', ['<=', 'arg1', '1'], '1', ['*', ['self', ['-', 'arg1', '1']], 'arg1']]], 'b']]]".replace("'", '"'))
