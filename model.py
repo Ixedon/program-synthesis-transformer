@@ -213,11 +213,11 @@ class Seq2Seq:
                                 description = self.__dataset.decode_input(text[i])
                             else:
                                 description = None
-
+                            print(f"ProgramId: {ids[i]}")
                             future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
                                                      train_tests[i], False, description)
                             try:
-                                compiled, passed = future.result(180)
+                                compiled, passed = future.result(60)
                                 #             print(program)
                                 executor._threads.clear()
                                 futures.thread._threads_queues.clear()
@@ -229,9 +229,6 @@ class Seq2Seq:
                                 compiled = 0
                                 passed = 0
 
-                            # compiled, passed = self.evaluate_program(
-                            #     epoch, program, args[i], return_types[i], train_tests[i], False, description
-                            # )
                             if compiled == 0:
                                 compilation_loss_mask = tf.concat([compilation_loss_mask, [2]], axis=0)
                             else:
@@ -303,6 +300,7 @@ class Seq2Seq:
                 else:
                     description = None
 
+                print(f"ProgramId:{ids[i]}")
                 future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
                                          validation_tests[i], False, description)
                 try:
@@ -318,9 +316,6 @@ class Seq2Seq:
                     compiled = 0
                     passed = 0
 
-                # compiled, passed = self.evaluate_program(
-                #     epoch, program, args[i], return_types[i], validation_tests[i], True, description
-                # )
                 if compiled == 0:
                     compilation_loss_mask = tf.concat([compilation_loss_mask, [2]], axis=0)
                 else:
@@ -395,6 +390,8 @@ class Seq2Seq:
                                                               is_validation)
                 written = True
             return_type = program_return_type.numpy().decode("utf-8")
+            print(self.__dataset.get_program_tokens(encoded_program))
+            print(program)
             statement = self.__dataset.compile_func(program, args, return_type)
             no_error = True
             for i in range(len(tests)):
@@ -458,6 +455,7 @@ class Seq2Seq:
             gc.collect()
             # print(f"PassedTests: {passed_tests} Total:{len(tests)}")
             compiled = 1 if no_error else 0
+            print("Return")
             return compiled, passed_tests
         except Exception as e:
             # except NotCompiledError as e:

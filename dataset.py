@@ -180,8 +180,10 @@ class DataSet:
             #             executor._threads.clear()
             #             futures.thread._threads_queues.clear()
             #             raise CompilationTimeout(self.get_program_tokens(encoded_program))
-            return decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
-                                              self.lips_units)[0], args
+            program, rest_tokens = decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),self.lips_units)
+            if len(rest_tokens) > 0:
+                raise NotCompiledError("Rest tokens not 0 len")
+            return program, args
             # except CompilationTimeout as e:
             #     raise NotCompiledError(f"Compilation timeout: {e.program}")
             # except KeyError as e:

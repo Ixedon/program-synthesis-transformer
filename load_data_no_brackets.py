@@ -139,10 +139,10 @@ def process_reduce(command_tokens, program_args, lisp_units):
     return program, command_tokens
 
 
-def decode_command_no_brackets(command_tokens, program_args, lisp_units, i):
+def decode_command_no_brackets(command_tokens, program_args, lisp_units):
     # time.sleep(10)
-    if i >= 500:
-        raise NotCompiledError("MaxRecursion")
+    # if i >= 500:
+    #     raise NotCompiledError("MaxRecursion")
     if not command_tokens:
         return None, command_tokens
     current_command = command_tokens[0]
