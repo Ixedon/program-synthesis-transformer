@@ -187,6 +187,7 @@ class Seq2Seq:
         min_val_los = 10_000
         val_steps_per_epoch = self.__dataset.get_val_count() // self.__batch_size
         steps_per_epoch = self.__dataset.get_train_count() // self.__batch_size
+        executor = futures.ThreadPoolExecutor(max_workers=1)
         for epoch in range(epochs):
             start_time = time.time()
             encoder_hidden = self.get_initial_hidden_state()
@@ -212,9 +213,22 @@ class Seq2Seq:
                                 description = self.__dataset.decode_input(text[i])
                             else:
                                 description = None
-                            compiled, passed = self.evaluate_program(
-                                epoch, program, args[i], return_types[i], train_tests[i], False, description
-                            )
+                            print(f"ProgramId: {ids[i]}")
+                            future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
+                                                     train_tests[i], False, description)
+                            try:
+                                compiled, passed = future.result(60)
+                                #             print(program)
+                                executor._threads.clear()
+                                futures.thread._threads_queues.clear()
+                                #             return program, args
+                            except futures.TimeoutError:
+                                print("Timeout error", file=sys.stderr)
+                                executor._threads.clear()
+                                futures.thread._threads_queues.clear()
+                                compiled = 0
+                                passed = 0
+
                             if compiled == 0:
                                 compilation_loss_mask = tf.concat([compilation_loss_mask, [2]], axis=0)
                             else:
@@ -275,6 +289,7 @@ class Seq2Seq:
         passed_tests = 0
         total_tests = 0
         first = True
+        executor = futures.ThreadPoolExecutor(max_workers=1)
         for (batch, (input, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
             predictions, predicted = self.val_step(input, target, encoder_hidden)
             validation_tests = self.__dataset.take_val_tests(ids)
@@ -284,9 +299,23 @@ class Seq2Seq:
                     description = self.__dataset.decode_input(input[i])
                 else:
                     description = None
-                compiled, passed = self.evaluate_program(
-                    epoch, program, args[i], return_types[i], validation_tests[i], True, description
-                )
+
+                print(f"ProgramId:{ids[i]}")
+                future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
+                                         validation_tests[i], False, description)
+                try:
+                    compiled, passed = future.result(180)
+                    #             print(program)
+                    executor._threads.clear()
+                    futures.thread._threads_queues.clear()
+                    #             return program, args
+                except futures.TimeoutError:
+                    print("Timeout error", file=sys.stderr)
+                    executor._threads.clear()
+                    futures.thread._threads_queues.clear()
+                    compiled = 0
+                    passed = 0
+
                 if compiled == 0:
                     compilation_loss_mask = tf.concat([compilation_loss_mask, [2]], axis=0)
                 else:
@@ -353,84 +382,89 @@ class Seq2Seq:
                          is_validation: bool,
                          description: str = None) -> (int, int, int):
         written = False
+        passed_tests = 0
         try:
-            passed_tests = 0
             program, args = self.__dataset.decode_program(encoded_program, program_args)
             if description:
                 self.__summary_writer.write_generated_program(program, args, program_return_type, description, epoch,
                                                               is_validation)
                 written = True
             return_type = program_return_type.numpy().decode("utf-8")
+            print(self.__dataset.get_program_tokens(encoded_program))
+            print(program)
             statement = self.__dataset.compile_func(program, args, return_type)
             no_error = True
             for i in range(len(tests)):
                 test_input = tests[i]['input']
                 test_output = tests[i]['output']
                 test_args = [test_input[a] for a in test_input.keys()]
-                try:
-                    with futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(statement, *test_args)
-                        try:
-                            o = future.result(180)
-                        # o = statement(*test_args)
-                            if isinstance(o, range):
-                                o = list(o)
-                            if o == test_output:
-                                passed_tests += 1
-                            executor._threads.clear()
-                            futures.thread._threads_queues.clear()
-                        except futures.TimeoutError:
-                            executor._threads.clear()
-                            futures.thread._threads_queues.clear()
-                            raise RunningTimeout(program)
-                except RunningTimeout as e:
-                    no_error = False
-                    print(f"Test error: Running timeout {e.program}")
-                    break
-                except ValueError as e:
-                    no_error = False
-                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    break
-                except TypeError as e:
-                    no_error = False
-                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    break
-                except IndexError as e:
-                    no_error = False
-                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    break
-                except AttributeError as e:
-                    no_error = False
-                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    break
-                except KeyError as e:
-                    no_error = False
-                    print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                    break
-                except MemoryError as e:
-                    no_error = False
-                    print(e)
-                    break
-                except AssertionError as e:
-                    no_error = False
-                    print(f"Tests error: {e}", file=sys.stderr)
-                    break
-                except Exception as e:
-                    no_error = False
-                    print(f"Other Tests error: {e}", file=sys.stderr)
-                    break
+                # try:
+                #     with futures.ThreadPoolExecutor(max_workers=1) as executor:
+                #         future = executor.submit(statement, *test_args)
+                #         try:
+                o = statement(*test_args)
+                # o = statement(*test_args)
+                if isinstance(o, range):
+                    o = list(o)
+                if o == test_output:
+                    passed_tests += 1
+                    #     executor._threads.clear()
+                    #     futures.thread._threads_queues.clear()
+                    # except futures.TimeoutError:
+                    #     executor._threads.clear()
+                    #     futures.thread._threads_queues.clear()
+                    #     raise RunningTimeout(program)
+                # except RunningTimeout as e:
+                #     no_error = False
+                #     print(f"Test error: Running timeout {e.program}")
+                #     break
+                # except ValueError as e:
+                #     no_error = False
+                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                #     break
+                # except TypeError as e:
+                #     no_error = False
+                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                #     break
+                # except IndexError as e:
+                #     no_error = False
+                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                #     break
+                # except AttributeError as e:
+                #     no_error = False
+                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                #     break
+                # except KeyError as e:
+                #     no_error = False
+                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
+                #     break
+                # except MemoryError as e:
+                #     no_error = False
+                #     print(e)
+                #     break
+                # except AssertionError as e:
+                #     no_error = False
+                #     print(f"Tests error: {e}", file=sys.stderr)
+                #     break
+                # except Exception as e:
+                #     no_error = False
+                #     print(f"Other Tests error: {e}", file=sys.stderr)
+                #     break
             del statement
             del program
             gc.collect()
             # print(f"PassedTests: {passed_tests} Total:{len(tests)}")
             compiled = 1 if no_error else 0
+            print("Return")
             return compiled, passed_tests
-        except NotCompiledError as e:
-            print(f"CompilationError:{e.message}", file=sys.stderr)
+        except Exception as e:
+            # except NotCompiledError as e:
+            print(f"Error:{e}", file=sys.stderr)
             if description and not written:
                 text = " ".join(self.__dataset.get_program_tokens(encoded_program))
-                self.__summary_writer.write_generated_program(text, f"CompilationError: {e.message}", "", description, epoch, is_validation)
-            return 0, 0
+                self.__summary_writer.write_generated_program(text, f"CompilationError: {e}", "", description,
+                                                              epoch, is_validation)
+            return 0, passed_tests
 
     def set_summary_writer(self, summary_writer: TrainSummaryWriter):
         self.__summary_writer = summary_writer

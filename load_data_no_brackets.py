@@ -1,9 +1,8 @@
 import json
 import os
 import sys
-import time
 
-from DataLoader import load_programs_json
+from DataLoader import load_programs_json, NotCompiledError
 from interpreter.code_lisp import load_lisp_units, str_to_type, compile_func
 from tqdm import tqdm
 
@@ -141,6 +140,9 @@ def process_reduce(command_tokens, program_args, lisp_units):
 
 
 def decode_command_no_brackets(command_tokens, program_args, lisp_units):
+    # time.sleep(10)
+    # if i >= 500:
+    #     raise NotCompiledError("MaxRecursion")
     if not command_tokens:
         return None, command_tokens
     current_command = command_tokens[0]

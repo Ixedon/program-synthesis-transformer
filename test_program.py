@@ -8,9 +8,9 @@ from interpreter.code_lisp import load_lisp_units, compile_func, str_to_type
 def infinite(n):
     i = n
     while True:
-        print(i)
+        # print(i)
         i += 1
-        time.sleep(1)
+        return 50
 
 
 def main():
