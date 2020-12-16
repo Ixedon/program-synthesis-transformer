@@ -7,12 +7,10 @@ import gc
 import tensorflow as tf
 import concurrent.futures as futures
 from tensorflow import GradientTape
-from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
 
-from DataLoader import NotCompiledError, RunningTimeout
 from dataset import DataSet
 from summary_writer import TrainSummaryWriter
 
@@ -51,9 +49,9 @@ class Seq2Seq:
         return self.__decoder(x, hidden, encoder_output)
 
     def evaluate_sentence(self, sentence: str):
-        input = tf.convert_to_tensor([self.__dataset.preprocess_sequence(sentence)])
+        text_vector = tf.convert_to_tensor([self.__dataset.preprocess_sequence(sentence)])
         hidden = [tf.zeros((1, self.__units))]
-        encoded_words = self.call(input, hidden)
+        encoded_words = self.call(text_vector, hidden)
         words = [self.__dataset.get_target_word(i) for i in encoded_words]
         return " ".join(words)
 
@@ -65,8 +63,8 @@ class Seq2Seq:
 
         encoded_words = []
         for i in range(self.__dataset.max_target_length):
-            predictions, decoder_hidden, attention_weights = self.decode(decoder_input, decoder_hidden, encoder_output)
-            attention_weights = tf.reshape(attention_weights, (-1,))
+            predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
+            # attention_weights = tf.reshape(attention_weights, (-1,))
             # attention_plot[i] = attention_weights.numpy()
             predicted_id = tf.argmax(predictions[0]).numpy()
             encoded_words.append(predicted_id)
@@ -89,11 +87,7 @@ class Seq2Seq:
         status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
         status.assert_existing_objects_matched()
 
-    # TODO add not compiled loss
     def loss_function(self, target, prediction, compilation_mask):
-        # if not compilation_mask:
-        # print("Target", target.shape)
-        # print("Prediction", prediction.shape)
         mask = tf.math.logical_not(tf.math.equal(target, 0))
         loss = self.__loss(target, prediction)
         mask = tf.cast(mask, dtype=loss.dtype)
@@ -105,26 +99,20 @@ class Seq2Seq:
     def calculate_loss(self, predictions, target, compilation_mask):
         batch_loss = 0
         for i in range(1, target.shape[1]):
-            # print("Pred shape before:", predictions[:, i, :].shape)
             pred = tf.reshape(predictions[:, i, :], (self.__batch_size, self.__dataset.target_vocab_size))
-            # print("Pred shape after:", pred.shape)
             batch_loss += self.loss_function(target[:, i], pred, compilation_mask)
         return batch_loss
 
     @tf.function
-    def train_step(self, input, target, encoder_hidden):
-        loss = 0
+    def train_step(self, encoded_text, target, encoder_hidden):
         predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
         predictions_collection = tf.zeros((self.__batch_size, 1, self.__dataset.target_vocab_size), dtype=tf.float32)
-        encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
+        encoder_output, encoder_hidden = self.encode(encoded_text, encoder_hidden)
 
         decoder_hidden = encoder_hidden
         decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
-
-            # TODO calculate loss for all targets and add not compilation error
-            # loss += self.loss_function(target[:, i], predictions, tf.ones(self.__batch_size))
 
             decoder_input = tf.expand_dims(target[:, i], 1)
 
@@ -139,18 +127,12 @@ class Seq2Seq:
                 axis=1
             )
 
-        # print("Pred collection:", predictions_collection.shape)
-
         # TODO for levensgtein
         # predicted = tf.cast(tf.reshape(predicted, targ.shape), tf.int32)
         # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
         # tf.print("Loss", loss, output_stream=sys.stderr)
         # loss += levenstein_loss
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
-        batch_loss = (loss / int(target.shape[1]))
-
-        # gradients = tape.gradient(loss, self.get_trainable_variables())
-        # self.__optimizer.apply_gradients(zip(gradients, self.get_trainable_variables()))
 
         return predictions_collection, predicted
 
@@ -290,19 +272,19 @@ class Seq2Seq:
         total_tests = 0
         first = True
         executor = futures.ThreadPoolExecutor(max_workers=1)
-        for (batch, (input, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
-            predictions, predicted = self.val_step(input, target, encoder_hidden)
+        for (batch, (text, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
+            predictions, predicted = self.val_step(text, target, encoder_hidden)
             validation_tests = self.__dataset.take_val_tests(ids)
             compilation_loss_mask = tf.ones(1)
             for i, program in enumerate(predicted):
                 if first:
-                    description = self.__dataset.decode_input(input[i])
+                    description = self.__dataset.decode_input(text[i])
                 else:
                     description = None
 
                 print(f"ProgramId:{ids[i]}")
                 future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
-                                         validation_tests[i], False, description)
+                                         validation_tests[i], True, description)
                 try:
                     compiled, passed = future.result(180)
                     #             print(program)
@@ -356,9 +338,10 @@ class Seq2Seq:
 
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
-
-            decoder_input = tf.expand_dims(target[:, i], 1)
             predicted_id = tf.argmax(predictions, axis=1)
+
+            decoder_input = tf.expand_dims([predicted_id], 1)
+
             predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
 
@@ -374,7 +357,6 @@ class Seq2Seq:
         # TODO add levenshtein
         # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
         # tf.print("Loss", loss, output_stream=sys.stderr)
-        # loss += levenstein_loss
         # batch_loss = (loss / int(target.shape[1]))
         return predictions_collection, predicted
 
@@ -390,7 +372,6 @@ class Seq2Seq:
                                                               is_validation)
                 written = True
             return_type = program_return_type.numpy().decode("utf-8")
-            # print(self.__dataset.get_program_tokens(encoded_program))
             print("Prog", program)
             statement = self.__dataset.compile_func(program, args, return_type)
             no_error = True
@@ -398,22 +379,11 @@ class Seq2Seq:
                 test_input = tests[i]['input']
                 test_output = tests[i]['output']
                 test_args = [test_input[a] for a in test_input.keys()]
-                # try:
-                #     with futures.ThreadPoolExecutor(max_workers=1) as executor:
-                #         future = executor.submit(statement, *test_args)
-                #         try:
                 o = statement(*test_args)
-                # o = statement(*test_args)
                 if isinstance(o, range):
                     o = list(o)
                 if o == test_output:
                     passed_tests += 1
-                    #     executor._threads.clear()
-                    #     futures.thread._threads_queues.clear()
-                    # except futures.TimeoutError:
-                    #     executor._threads.clear()
-                    #     futures.thread._threads_queues.clear()
-                    #     raise RunningTimeout(program)
                 # except RunningTimeout as e:
                 #     no_error = False
                 #     print(f"Test error: Running timeout {e.program}")
@@ -458,7 +428,6 @@ class Seq2Seq:
             print("Return")
             return compiled, passed_tests
         except Exception as e:
-            # except NotCompiledError as e:
             print(f"Error:{e}", file=sys.stderr)
             if description and not written:
                 text = " ".join(self.__dataset.get_program_tokens(encoded_program))
@@ -516,22 +485,13 @@ class BahdanauAttention(tf.keras.layers.Layer):
         self.dense_2 = Dense(1)
 
     def call(self, query, values):
-        # query hidden state shape == (batch_size, hidden size)
-        # query_with_time_axis shape == (batch_size, 1, hidden size)
-        # values shape == (batch_size, max_len, hidden size)
-        # we are doing this to broadcast addition along the time axis to calculate the score
         query_with_time_axis = tf.expand_dims(query, 1)
 
-        # score shape == (batch_size, max_length, 1)
-        # we get 1 at the last axis because we are applying score to self.V
-        # the shape of the tensor before applying self.V is (batch_size, max_length, units)
         score = self.dense_2(tf.nn.tanh(
             self.dense_0(query_with_time_axis) + self.dense_1(values)))
 
-        # attention_weights shape == (batch_size, max_length, 1)
         attention_weights = tf.nn.softmax(score, axis=1)
 
-        # context_vector shape after sum == (batch_size, hidden_size)
         context_vector = attention_weights * values
         context_vector = tf.reduce_sum(context_vector, axis=1)
 
