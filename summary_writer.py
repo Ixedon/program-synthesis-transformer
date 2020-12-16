@@ -66,3 +66,5 @@ class TrainSummaryWriter:
         with self.__val_writer.as_default():
             summary.scalar("levenshtein", val_levenshtein, step)
         self.__val_writer.flush()
+
+        # TODO add program equality, hemingway distance
