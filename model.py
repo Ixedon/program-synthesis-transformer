@@ -6,12 +6,14 @@ import gc
 
 import tensorflow as tf
 import concurrent.futures as futures
+import numpy as np
 from tensorflow import GradientTape
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.optimizers import Adam
 
 from dataset import DataSet
+from stats import levenshtein_distance
 from summary_writer import TrainSummaryWriter
 
 
@@ -19,6 +21,8 @@ class Seq2Seq:
 
     def __init__(self, embeddig_dim, units, dataset: DataSet):
         super(Seq2Seq, self).__init__()
+        tf.random.set_seed(0)
+        np.random.seed(0)
         self.__batch_size = dataset.batch_size
         self.__units = units
 
@@ -39,14 +43,24 @@ class Seq2Seq:
 
         self.__summary_writer: TrainSummaryWriter = None
 
+    def write_summary(self):
+        input_layer = [Input(self.__dataset.max_input_len), Input(1)]
+        encoder_model = self.__encoder.model(input_layer, self.get_initial_hidden_state())
+        encoder_model.summary()
+        enc_output, enc_hidden = encoder_model.output_shape
+        print(f"Encoder hidden: {enc_hidden}")
+        print(f"Encoder output: {enc_output}\n\n")
+        self.__decoder.model(input_layer, hidden=encoder_model.output[1], enc_output=encoder_model.output[0]).summary()
+        print("\n\n")
+
     def get_trainable_variables(self):
         return self.__encoder.trainable_variables + self.__decoder.trainable_variables
 
     def encode(self, x, hidden):
-        return self.__encoder(x, hidden)
+        return self.__encoder(x, hidden=hidden)
 
     def decode(self, x, hidden, encoder_output):
-        return self.__decoder(x, hidden, encoder_output)
+        return self.__decoder(x, hidden=hidden, enc_output=encoder_output)
 
     def evaluate_sentence(self, sentence: str):
         text_vector = tf.convert_to_tensor([self.__dataset.preprocess_sequence(sentence)])
@@ -95,7 +109,6 @@ class Seq2Seq:
         loss *= compilation_mask
         return tf.reduce_mean(loss)
 
-    # TODO add levenshtein loss
     def calculate_loss(self, predictions, target, compilation_mask):
         batch_loss = 0
         for i in range(1, target.shape[1]):
@@ -127,11 +140,6 @@ class Seq2Seq:
                 axis=1
             )
 
-        # TODO for levensgtein
-        # predicted = tf.cast(tf.reshape(predicted, targ.shape), tf.int32)
-        # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
-        # tf.print("Loss", loss, output_stream=sys.stderr)
-        # loss += levenstein_loss
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
 
         return predictions_collection, predicted
@@ -177,6 +185,8 @@ class Seq2Seq:
 
             compiled_programs = 0
             passed_tests = 0
+            levenshtein_sum = 0
+            equal_programs = 0
             total_tests = 0
             first = True
             for (batch, (text, target, return_types, args, ids)) in enumerate(
@@ -185,12 +195,15 @@ class Seq2Seq:
                 if epoch == 0 and batch == 0:
                     print(f"Output tensor shape {target.shape}")
                 with GradientTape() as tape:
-
                     predictions, predicted = self.train_step(text, target, encoder_hidden)
                     compilation_loss_mask = tf.ones(1)
                     if compile_train:
                         train_tests = self.__dataset.take_train_tests(ids)
                         for i, program in enumerate(predicted):
+                            dist = levenshtein_distance(target[i], program)
+                            if dist == 0:
+                                equal_programs += 1
+                            levenshtein_sum += dist
                             if first:
                                 description = self.__dataset.decode_input(text[i])
                             else:
@@ -200,10 +213,8 @@ class Seq2Seq:
                                                      train_tests[i], False, description)
                             try:
                                 compiled, passed = future.result(60)
-                                #             print(program)
                                 executor._threads.clear()
                                 futures.thread._threads_queues.clear()
-                                #             return program, args
                             except futures.TimeoutError:
                                 print("Timeout error", file=sys.stderr)
                                 executor._threads.clear()
@@ -221,7 +232,6 @@ class Seq2Seq:
                             total_tests += len(train_tests[i])
                             first = False
                         compilation_loss_mask = compilation_loss_mask[1:]
-                    # print("Comp mask", compilation_loss_mask)
                     batch_loss = self.calculate_loss(predictions, target, compilation_loss_mask)
                     batch_loss = (batch_loss / int(target.shape[1]))
 
@@ -249,7 +259,11 @@ class Seq2Seq:
                 self.__summary_writer.write_passed_test_count(passed_tests, epoch, False)
                 self.__summary_writer.write_compiled_programs(compiled_programs, epoch, False)
 
-            # if (epoch + 1) % 2 == 0:
+            mean_levenshtein = levenshtein_sum / self.__dataset.get_train_count()
+            mean_equality = equal_programs / self.__dataset.get_train_count()
+            self.__summary_writer.write_mean_equality(mean_equality, epoch, False)
+            self.__summary_writer.write_mean_levenshtein_distance(np.asscalar(mean_levenshtein.numpy()), epoch, False)
+
             checkpoint.save(file_prefix=checkpoint_prefix)
 
             val_loss = self.validate(epoch)
@@ -270,6 +284,8 @@ class Seq2Seq:
         compiled_programs = 0
         passed_tests = 0
         total_tests = 0
+        levenshtein_sum = 0
+        equal_programs = 0
         first = True
         executor = futures.ThreadPoolExecutor(max_workers=1)
         for (batch, (text, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
@@ -277,6 +293,10 @@ class Seq2Seq:
             validation_tests = self.__dataset.take_val_tests(ids)
             compilation_loss_mask = tf.ones(1)
             for i, program in enumerate(predicted):
+                dist = levenshtein_distance(target[i], program)
+                if dist == 0:
+                    equal_programs += 1
+                levenshtein_sum += dist
                 if first:
                     description = self.__dataset.decode_input(text[i])
                 else:
@@ -324,8 +344,12 @@ class Seq2Seq:
         passed_tests = passed_tests / total_tests
         print(f"Compiled: {compiled_programs} Count: {self.__dataset.get_val_count()}")
         compiled_programs = compiled_programs / self.__dataset.get_val_count()
+        mean_levenshtein = levenshtein_sum / self.__dataset.get_val_count()
+        mean_equality = equal_programs / self.__dataset.get_val_count()
         self.__summary_writer.write_passed_test_count(passed_tests, epoch, True)
         self.__summary_writer.write_compiled_programs(compiled_programs, epoch, True)
+        self.__summary_writer.write_mean_equality(mean_equality, epoch, True)
+        self.__summary_writer.write_mean_levenshtein_distance(np.asscalar(mean_levenshtein.numpy()), epoch, True)
         return val_loss
 
     def val_step(self, input, target, encoder_hidden):
@@ -339,8 +363,7 @@ class Seq2Seq:
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
             predicted_id = tf.argmax(predictions, axis=1)
-
-            decoder_input = tf.expand_dims([predicted_id], 1)
+            decoder_input = tf.reshape(predicted_id.numpy(), decoder_input.shape)
 
             predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
@@ -354,10 +377,6 @@ class Seq2Seq:
             )
 
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
-        # TODO add levenshtein
-        # levenstein_loss = whole_loss(tf.cast(targ, tf.int32), predicted)[0]
-        # tf.print("Loss", loss, output_stream=sys.stderr)
-        # batch_loss = (loss / int(target.shape[1]))
         return predictions_collection, predicted
 
     def evaluate_program(self, epoch: int, encoded_program, program_args, program_return_type, tests,
@@ -384,42 +403,6 @@ class Seq2Seq:
                     o = list(o)
                 if o == test_output:
                     passed_tests += 1
-                # except RunningTimeout as e:
-                #     no_error = False
-                #     print(f"Test error: Running timeout {e.program}")
-                #     break
-                # except ValueError as e:
-                #     no_error = False
-                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                #     break
-                # except TypeError as e:
-                #     no_error = False
-                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                #     break
-                # except IndexError as e:
-                #     no_error = False
-                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                #     break
-                # except AttributeError as e:
-                #     no_error = False
-                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                #     break
-                # except KeyError as e:
-                #     no_error = False
-                #     print(f"Tests error: {e.args[0]}", file=sys.stderr)
-                #     break
-                # except MemoryError as e:
-                #     no_error = False
-                #     print(e)
-                #     break
-                # except AssertionError as e:
-                #     no_error = False
-                #     print(f"Tests error: {e}", file=sys.stderr)
-                #     break
-                # except Exception as e:
-                #     no_error = False
-                #     print(f"Other Tests error: {e}", file=sys.stderr)
-                #     break
             del statement
             del program
             gc.collect()
@@ -441,17 +424,21 @@ class Seq2Seq:
 
 class Encoder(tf.keras.Model):
     def __init__(self, vocab_size, embedding_dim, units):
-        super(Encoder, self).__init__()
+        super(Encoder, self).__init__(name="Encoder")
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
         self.gru = tf.keras.layers.GRU(units,
                                        return_sequences=True,
                                        return_state=True,
                                        recurrent_initializer='glorot_uniform')
 
-    def call(self, x, hidden):
-        x = self.embedding(x)
+    def call(self, inputs, **kwargs):  # x, hidden):
+        hidden = kwargs.get("hidden")
+        x = self.embedding(inputs)
         output, state = self.gru(x, initial_state=hidden)
         return output, state
+
+    def model(self, input_layer, hidden):
+        return tf.keras.Model(input_layer, self.call(input_layer[0], hidden=hidden), name="Encoder")
 
 
 class Decoder(tf.keras.Model):
@@ -467,19 +454,25 @@ class Decoder(tf.keras.Model):
         # Attention
         self.attention = BahdanauAttention(units)
 
-    def call(self, x, hidden, enc_output):
+    def call(self, inputs, **kwargs):  # , hidden, enc_output):
+        hidden = kwargs.get("hidden")
+        enc_output = kwargs.get("enc_output")
         context_vector, attention_weights = self.attention(hidden, enc_output)
-        x = self.embedding(x)
+        x = self.embedding(inputs)
         x = tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1)
         output, state = self.gru(x)
         output = tf.reshape(output, (-1, output.shape[2]))
         x = self.fc(output)
         return x, state, attention_weights
 
+    def model(self, input_layer, hidden, enc_output):
+        return tf.keras.Model(input_layer, self.call(input_layer[1], hidden=hidden, enc_output=enc_output),
+                              name="Decoder")
+
 
 class BahdanauAttention(tf.keras.layers.Layer):
     def __init__(self, units):
-        super(BahdanauAttention, self).__init__()
+        super(BahdanauAttention, self).__init__(name="BahdanauAttention")
         self.dense_0 = Dense(units)
         self.dense_1 = Dense(units)
         self.dense_2 = Dense(1)

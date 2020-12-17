@@ -2,15 +2,14 @@ import json
 import os
 import re
 from json.decoder import JSONDecodeError
-from tqdm import tqdm
-import concurrent.futures as futures
 
+import tensorflow as tf
 from tensorflow.data import Dataset
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.python.keras.preprocessing.text import Tokenizer
+from tqdm import tqdm
 
-from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError, encode_args, decode_args, \
-    CompilationTimeout
+from DataLoader import load_programs_json, tokenize_program, decode_program, NotCompiledError, encode_args, decode_args
 from interpreter.code_lisp import load_lisp_units, str_to_type, compile_func
 from load_data_no_brackets import encode_program_no_brackets, decode_command_no_brackets
 
@@ -18,7 +17,7 @@ from load_data_no_brackets import encode_program_no_brackets, decode_command_no_
 class DataSet:
 
     def __init__(self, batch_size, total_train_count, total_val_count, with_brackets):
-
+        tf.random.set_seed(0)
         self.with_brackets = with_brackets
         self.input_tokenizer: Tokenizer = Tokenizer(filters='')
         self.target_tokenizer: Tokenizer = Tokenizer(filters='')  # , oov_token="")  #  remove oov
@@ -167,34 +166,10 @@ class DataSet:
     def decode_program(self, encoded_program, program_args):
         if self.with_brackets:
             args = decode_args(program_args.numpy().decode('utf-8').split())
-            # try:
-            #     with futures.ThreadPoolExecutor(max_workers=1) as executor:
-            #         future = executor.submit(decode_command_no_brackets, self.get_program_tokens(encoded_program), args.keys(), self.lips_units)
-            #         try:
-            #             program = future.result(180)[0]
-            #             print(program)
-            #             executor._threads.clear()
-            #             futures.thread._threads_queues.clear()
-            #             return program, args
-            #         except futures.TimeoutError:
-            #             executor._threads.clear()
-            #             futures.thread._threads_queues.clear()
-            #             raise CompilationTimeout(self.get_program_tokens(encoded_program))
             program, rest_tokens = decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),self.lips_units)
             if len(rest_tokens) > 0:
                 raise NotCompiledError("Rest tokens not 0 len")
             return program, args
-            # except CompilationTimeout as e:
-            #     raise NotCompiledError(f"Compilation timeout: {e.program}")
-            # except KeyError as e:
-            #     raise NotCompiledError(e.args[0])
-            # except IndexError as e:
-            #     raise NotCompiledError(e.args[0])
-            # except Exception as e:
-            #     print("Program tokens", self.get_program_tokens(encoded_program))
-            #     print("Args", args)
-            #     raise e
-            # TODO errors handling
         return decode_program(" ".join(self.get_program_tokens(encoded_program)), program_args)
 
     def compile_func(self, program, args, return_type):
