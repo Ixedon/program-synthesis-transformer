@@ -1,12 +1,23 @@
 import json
 import os
 from DataLoader import load_programs_json
+from argparse import ArgumentParser
+
+
+def setup_parser() -> ArgumentParser():
+    arg_parser = ArgumentParser()
+    arg_parser.add_argument("--dataset", help="Algolips cleared data set path", required=True)
+    arg_parser.add_argument("--output", help="Output path", default="filtered_data")
+    return arg_parser
+
 
 if __name__ == '__main__':
+    parser = setup_parser()
+    args = parser.parse_args()
     files = ["metaset3.test.jsonl", "metaset3.train.jsonl", "metaset3.dev.jsonl"]
     for file in files:
 
-        programs = load_programs_json(os.path.join("cleared_data", file))
+        programs = load_programs_json(os.path.join(args.dataset, file))
         filtered_programs = []
         j = 0
         for i in range(len(programs["short_tree"])):
@@ -15,7 +26,7 @@ if __name__ == '__main__':
                 filtered_programs.append(i)
 
         print(f"File {file}: {j}")
-        with open(os.path.join("filtered_data", file), "w", encoding="utf-8") as f:
+        with open(os.path.join(args.output, file), "w", encoding="utf-8") as f:
             lines = []
             for i in filtered_programs:
                 lines.append(json.dumps({

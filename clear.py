@@ -4,10 +4,10 @@ from DataSetClearer import DataSetClearer
 
 
 def setup_parser() -> argparse.ArgumentParser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", help="Algolips data set path", required=True)
-    parser.add_argument("--output", help="Output path", default="cleared_data")
-    return parser
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("--dataset", help="Algolips data set path", required=True)
+    arg_parser.add_argument("--output", help="Output path", default="cleared_data")
+    return arg_parser
 
 
 if __name__ == '__main__':

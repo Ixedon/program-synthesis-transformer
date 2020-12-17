@@ -143,7 +143,7 @@ def decode_command_no_brackets(command_tokens, program_args, lisp_units):
     # time.sleep(10)
     # if i >= 500:
     #     raise NotCompiledError("MaxRecursion")
-    if not command_tokens:
+    if len(command_tokens) == 0:
         return None, command_tokens
     current_command = command_tokens[0]
     command_tokens = command_tokens[1:]

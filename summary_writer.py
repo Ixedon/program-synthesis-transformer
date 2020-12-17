@@ -4,6 +4,7 @@ import shutil
 
 from tensorflow import summary
 
+
 class TrainSummaryWriter:
 
     def __init__(self, logs_dir):
@@ -25,7 +26,7 @@ class TrainSummaryWriter:
             summary.scalar("loss", val_loss, step)
         self.__val_writer.flush()
 
-    def write_compiled_programs(self, compiled_percent, step: int, is_validation:bool):
+    def write_compiled_programs(self, compiled_percent, step: int, is_validation: bool):
         if is_validation:
             with self.__val_writer.as_default():
                 summary.scalar("compiled_programs", compiled_percent, step)
@@ -59,12 +60,24 @@ class TrainSummaryWriter:
                 summary.text("program", text, step)
             self.__train_writer.flush()
 
-    def write_mean_levenshtein_distance(self, train_levenshtein, val_levenshtein, step):
-        with self.__train_writer.as_default():
-            summary.scalar("levenshtein", train_levenshtein, step)
-        self.__train_writer.flush()
-        with self.__val_writer.as_default():
-            summary.scalar("levenshtein", val_levenshtein, step)
-        self.__val_writer.flush()
+    def write_mean_levenshtein_distance(self, levenshtein, step: int, is_validation: bool):
+        if is_validation:
+            with self.__val_writer.as_default():
+                summary.scalar("levenshtein", levenshtein, step)
+            self.__val_writer.flush()
+        else:
+            with self.__train_writer.as_default():
+                summary.scalar("levenshtein", levenshtein, step)
+            self.__train_writer.flush()
+
+    def write_mean_equality(self, equality, step: int, is_validation: bool):
+        if is_validation:
+            with self.__val_writer.as_default():
+                summary.scalar("equality", equality, step)
+            self.__val_writer.flush()
+        else:
+            with self.__train_writer.as_default():
+                summary.scalar("equality", equality, step)
+            self.__train_writer.flush()
 
         # TODO add program equality, hemingway distance

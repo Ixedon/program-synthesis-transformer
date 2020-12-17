@@ -11,4 +11,6 @@ model = Seq2Seq(128, 320, dataset)
 
 model.load_last("14-12-2020")
 
+# TODO write test used data from test set
+
 print(model.evaluate_sentence("given an array of numbers what is first half of the given array"))
