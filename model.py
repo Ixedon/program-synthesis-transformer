@@ -43,6 +43,7 @@ class Seq2Seq:
         self.__loss = SparseCategoricalCrossentropy(from_logits=True, reduction='none')
 
         self.__summary_writer: TrainSummaryWriter = None
+        self.__p_target = None
 
     def write_summary(self):
         input_layer = [Input(self.__dataset.max_input_len), Input(1)]
@@ -118,7 +119,7 @@ class Seq2Seq:
         return batch_loss
 
     @tf.function
-    def train_step(self, encoded_text, target, encoder_hidden):
+    def train_step(self, encoded_text, target, encoder_hidden, p):
         predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
         predictions_collection = tf.zeros((self.__batch_size, 1, self.__dataset.target_vocab_size), dtype=tf.float32)
         encoder_output, encoder_hidden = self.encode(encoded_text, encoder_hidden)
@@ -127,8 +128,6 @@ class Seq2Seq:
         decoder_input = tf.expand_dims([self.__dataset.get_target_index('<start>')] * self.__batch_size, 1)
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
-
-            decoder_input = tf.expand_dims(target[:, i], 1)
 
             predicted_id = tf.argmax(predictions, axis=1)
             predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
@@ -140,6 +139,11 @@ class Seq2Seq:
                 ],
                 axis=1
             )
+
+            if p:  # tf.cond(tf.random.uniform((1,), minval=0, maxval=1) < p):
+                decoder_input = tf.expand_dims(target[:, i], 1)
+            else:
+                decoder_input = tf.reshape(predicted_id, decoder_input.shape)
 
         predicted = tf.cast(tf.reshape(predicted, target.shape), tf.int32)
 
@@ -178,6 +182,8 @@ class Seq2Seq:
         min_val_los = 10_000
         val_steps_per_epoch = self.__dataset.get_val_count() // self.__batch_size
         steps_per_epoch = self.__dataset.get_train_count() // self.__batch_size
+        self.__p_target = tf.concat([tf.linspace(0.95, 0.3, epochs // 2), tf.zeros(epochs // 2)], axis=0)
+        print(f"P tar {self.__p_target}")
         # executor = futures.ThreadPoolExecutor(max_workers=1)
         for epoch in range(epochs):
             start_time = time.time()
@@ -196,7 +202,8 @@ class Seq2Seq:
                 if epoch == 0 and batch == 0:
                     print(f"Output tensor shape {target.shape}")
                 with GradientTape() as tape:
-                    predictions, predicted = self.train_step(text, target, encoder_hidden)
+                    b = (tf.random.uniform([1], minval=0, maxval=1) < self.__p_target[epoch]).numpy()[0]
+                    predictions, predicted = self.train_step(text, target, encoder_hidden, b)
                     compilation_loss_mask = tf.ones(1)
                     if compile_train:
                         train_tests = self.__dataset.take_train_tests(ids)
@@ -215,7 +222,7 @@ class Seq2Seq:
                             try:
                                 with time_limit(180):
                                     compiled, passed = self.evaluate_program(epoch, program, args[i], return_types[i],
-                                                         train_tests[i], False, description)
+                                                                             train_tests[i], False, description)
                                 # executor._threads.clear()
                                 # futures.thread._threads_queues.clear()
                             except TimeoutException:
@@ -311,7 +318,7 @@ class Seq2Seq:
                 try:
                     with time_limit(180):
                         compiled, passed = self.evaluate_program(epoch, program, args[i], return_types[i],
-                                         validation_tests[i], True, description)
+                                                                 validation_tests[i], True, description)
                     #             print(program)
                     # executor._threads.clear()
                     # futures.thread._threads_queues.clear()
@@ -357,6 +364,7 @@ class Seq2Seq:
         self.__summary_writer.write_mean_levenshtein_distance(np.asscalar(mean_levenshtein.numpy()), epoch, True)
         return val_loss
 
+    @tf.function
     def val_step(self, input, target, encoder_hidden):
         predicted = tf.zeros((self.__batch_size, 1), dtype=tf.int64)
         encoder_output, encoder_hidden = self.encode(input, encoder_hidden)
@@ -368,7 +376,7 @@ class Seq2Seq:
         for i in range(1, target.shape[1]):
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
             predicted_id = tf.argmax(predictions, axis=1)
-            decoder_input = tf.reshape(predicted_id.numpy(), decoder_input.shape)
+            decoder_input = tf.reshape(predicted_id, decoder_input.shape)
 
             predicted_id = tf.reshape(predicted_id, (self.__batch_size, 1))
             predicted = tf.concat([predicted, predicted_id], axis=1)
