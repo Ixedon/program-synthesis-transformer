@@ -15,6 +15,7 @@ from tensorflow.keras.optimizers import Adam
 from dataset import DataSet
 from stats import levenshtein_distance
 from summary_writer import TrainSummaryWriter
+from timelimit import TimeoutException, time_limit
 
 
 class Seq2Seq:
@@ -177,7 +178,7 @@ class Seq2Seq:
         min_val_los = 10_000
         val_steps_per_epoch = self.__dataset.get_val_count() // self.__batch_size
         steps_per_epoch = self.__dataset.get_train_count() // self.__batch_size
-        executor = futures.ThreadPoolExecutor(max_workers=1)
+        # executor = futures.ThreadPoolExecutor(max_workers=1)
         for epoch in range(epochs):
             start_time = time.time()
             encoder_hidden = self.get_initial_hidden_state()
@@ -209,16 +210,18 @@ class Seq2Seq:
                             else:
                                 description = None
                             print(f"ProgramId: {ids[i]}")
-                            future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
-                                                     train_tests[i], False, description)
+                            # future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
+                            #                          train_tests[i], False, description)
                             try:
-                                compiled, passed = future.result(60)
-                                executor._threads.clear()
-                                futures.thread._threads_queues.clear()
-                            except futures.TimeoutError:
+                                with time_limit(180):
+                                    compiled, passed = self.evaluate_program(epoch, program, args[i], return_types[i],
+                                                         train_tests[i], False, description)
+                                # executor._threads.clear()
+                                # futures.thread._threads_queues.clear()
+                            except TimeoutException:
                                 print("Timeout error", file=sys.stderr)
-                                executor._threads.clear()
-                                futures.thread._threads_queues.clear()
+                                # executor._threads.clear()
+                                # futures.thread._threads_queues.clear()
                                 compiled = 0
                                 passed = 0
 
@@ -287,7 +290,7 @@ class Seq2Seq:
         levenshtein_sum = 0
         equal_programs = 0
         first = True
-        executor = futures.ThreadPoolExecutor(max_workers=1)
+        # executor = futures.ThreadPoolExecutor(max_workers=1)
         for (batch, (text, target, return_types, args, ids)) in enumerate(self.__dataset.take_val(steps_per_epoch)):
             predictions, predicted = self.val_step(text, target, encoder_hidden)
             validation_tests = self.__dataset.take_val_tests(ids)
@@ -303,18 +306,20 @@ class Seq2Seq:
                     description = None
 
                 print(f"ProgramId:{ids[i]}")
-                future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
-                                         validation_tests[i], True, description)
+                # future = executor.submit(self.evaluate_program, epoch, program, args[i], return_types[i],
+                #                          validation_tests[i], True, description)
                 try:
-                    compiled, passed = future.result(180)
+                    with time_limit(180):
+                        compiled, passed = self.evaluate_program(epoch, program, args[i], return_types[i],
+                                         validation_tests[i], True, description)
                     #             print(program)
-                    executor._threads.clear()
-                    futures.thread._threads_queues.clear()
+                    # executor._threads.clear()
+                    # futures.thread._threads_queues.clear()
                     #             return program, args
-                except futures.TimeoutError:
+                except TimeoutException:
                     print("Timeout error", file=sys.stderr)
-                    executor._threads.clear()
-                    futures.thread._threads_queues.clear()
+                    # executor._threads.clear()
+                    # futures.thread._threads_queues.clear()
                     compiled = 0
                     passed = 0
 

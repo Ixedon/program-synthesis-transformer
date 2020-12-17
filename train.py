@@ -16,7 +16,7 @@ if __name__ == '__main__':
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
     dataset = DataSet(10, 800, 1000, True)
-    model = Seq2Seq(128, 120, dataset)
+    model = Seq2Seq(128, 320, dataset)
     summary_writer = TrainSummaryWriter("logs")
     model.set_summary_writer(summary_writer)
 
