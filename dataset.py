@@ -28,6 +28,7 @@ class DataSet:
 
         self.total_train_count = total_train_count
         self.total_val_count = total_val_count
+        self.total_test_count = 10_000
 
         self.max_target_length = None
         self.batch_size = batch_size
@@ -37,6 +38,9 @@ class DataSet:
         )
         self.tf_val_dataset, self.__val_tests, self.total_val_count = self.__create_dataset(
             "metaset3.dev.jsonl", total_val_count, "validation"
+        )
+        self.tf_test_dataset, self.__test_tests, self.total_test_count = self.__create_dataset(
+            "metaset3.test.jsonl", self.total_test_count, "test"
         )
         self.lips_units = load_lisp_units()
 
@@ -108,17 +112,26 @@ class DataSet:
     def get_val_count(self):
         return (self.total_val_count // self.batch_size) * self.batch_size
 
+    def get_test_count(self):
+        return (self.total_test_count // self.batch_size) * self.batch_size
+
     def take_train(self, steps_per_epoch):
         return self.tf_train_dataset.take(steps_per_epoch)
 
     def take_val(self, steps_per_epoch):
         return self.tf_val_dataset.take(steps_per_epoch)
 
+    def take_test(self, steps_per_epoch):
+        return self.tf_test_dataset.take(steps_per_epoch)
+
     def take_train_tests(self, indices):
         return [self.__train_tests[i] for i in indices]
 
     def take_val_tests(self, indices):
         return [self.__val_tests[i] for i in indices]
+
+    def take_test_tests(self, indices):
+        return [self.__test_tests[i] for i in indices]
 
     @staticmethod
     def preprocess_sentence(sentence):
@@ -166,7 +179,8 @@ class DataSet:
     def decode_program(self, encoded_program, program_args):
         if self.with_brackets:
             args = decode_args(program_args.numpy().decode('utf-8').split())
-            program, rest_tokens = decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),self.lips_units)
+            program, rest_tokens = decode_command_no_brackets(self.get_program_tokens(encoded_program), args.keys(),
+                                                              self.lips_units)
             if len(rest_tokens) > 0:
                 raise NotCompiledError("Rest tokens not 0 len")
             return program, args
