@@ -15,8 +15,9 @@ if __name__ == '__main__':
     assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-    dataset = DataSet(10, 800, 1000, True)
+    dataset = DataSet(10, 80_000, 10_000, True)
     model = Seq2Seq(128, 320, dataset)
+    model.load_last("30-12-2020")
     summary_writer = TrainSummaryWriter("logs")
     model.set_summary_writer(summary_writer)
 
@@ -24,6 +25,6 @@ if __name__ == '__main__':
     current_date = datetime.date.today()
     current_date = current_date.strftime("%d-%m-%Y")
     logs_dir += "-" + current_date
-    model.train(10, True)
+    model.train(6, True)
     model.load_last(current_date)
     print(model.evaluate_sentence("given an array of numbers what is first half of the given array"))
