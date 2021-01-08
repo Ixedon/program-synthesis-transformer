@@ -494,7 +494,7 @@ class Seq2Seq:
             compilation_loss_mask = compilation_loss_mask[1:]
             batch_loss = self.calculate_loss(predictions, target, compilation_loss_mask)
             batch_loss = (batch_loss / int(target.shape[1]))
-            test_tests += batch_loss
+            test_loss += batch_loss
             del predictions
             del predicted
             gc.collect()
