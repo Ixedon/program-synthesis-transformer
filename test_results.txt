@@ -1,0 +1,8 @@
+Passed test count: 43711
+Compiled: 5170 Count: 10000
+Compiled percent: 0.517
+Passed test percent: 0.4766323548654425
+Total test count: 91708
+Mean equality: 0.0
+Mean levenshtein: [186.4038]
+Loss: 0.27578538656234

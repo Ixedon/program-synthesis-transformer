@@ -90,14 +90,18 @@ class DataSet:
             ids.append(i)
         if fit_tokenizer:
             texts, programs = self.__fit_tokenizers(texts, programs_tokenized)
+            print(f"Programs size: {programs.shape}")
         else:
             texts, programs = self.__tokenize_programs(texts, programs_tokenized)
+            print(f"Programs size: {programs.shape}")
         tensor_len = len(programs[:max_total_count])
         dataset = Dataset.from_tensor_slices((
             texts[:max_total_count], programs[:max_total_count],
             return_types[:max_total_count], args[:max_total_count],
             ids[:max_total_count]
         )).shuffle(tensor_len)
+        test_count = sum([len(x) for x in programs_data['tests']])
+        print(f"Test count: {test_count}")
         return dataset.batch(self.batch_size, drop_remainder=True), programs_data['tests'], tensor_len
 
     def get_target_index(self, word: str):
@@ -210,3 +214,7 @@ class DataSet:
             print("Args", args)
             print("Return type", return_type)
             raise e
+
+if __name__ == '__main__':
+    DataSet(10, 80_000, 10_000, True)
+
