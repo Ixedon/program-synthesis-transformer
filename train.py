@@ -18,8 +18,8 @@ if __name__ == '__main__':
     dataset = DataSet(10, 80_000, 10_000, True)
     model = Seq2Seq(128, 320, dataset)
     model.write_summary()
-    exit(0)
-    model.load_last("30-12-2020")
+    # exit(0)
+    model.load_last("17-12-2020")
     summary_writer = TrainSummaryWriter("logs")
     model.set_summary_writer(summary_writer)
 
