@@ -69,7 +69,7 @@ class Seq2Seq:
         hidden = [tf.zeros((1, self.__units))]
         encoded_words = self.call(text_vector, hidden)
         words = [self.__dataset.get_target_word(i) for i in encoded_words]
-        return " ".join(words)
+        return " ".join(words), encoded_words
 
     def call(self, x, hidden):
         encoder_output, encoder_hidden = self.encode(x, hidden)
@@ -79,9 +79,9 @@ class Seq2Seq:
 
         encoded_words = []
         for i in range(self.__dataset.max_target_length):
-            print(f"Encoder out {encoder_output.shape}")
-            print(f"Dec_input {decoder_input.shape}")
-            print(f"dec hiden {decoder_hidden.shape}")
+            # print(f"Encoder out {encoder_output.shape}")
+            # print(f"Dec_input {decoder_input.shape}")
+            # print(f"dec hiden {decoder_hidden.shape}")
             predictions, decoder_hidden, _ = self.decode(decoder_input, decoder_hidden, encoder_output)
             # attention_weights = tf.reshape(attention_weights, (-1,))
             # attention_plot[i] = attention_weights.numpy()
